@@ -40,19 +40,20 @@ namespace fast_engine
         const int available = std::max(0, my_time - tb.overhead_ms);
 
         // Default moves-to-go if unknown.
-        const int mtg = (limits.movestogo > 0) ? limits.movestogo : 30;
+        // Bias higher so early game time usage is more conservative.
+        const int mtg = (limits.movestogo > 0) ? limits.movestogo : 64;
 
         // Soft budget: time slice plus a fraction of increment.
         long long soft = 0;
         soft += static_cast<long long>(available) / static_cast<long long>(mtg + 1);
-        soft += (static_cast<long long>(my_inc) * 8) / 10; // 0.8 * increment
+        soft += (static_cast<long long>(my_inc) * 6) / 10; // 0.6 * increment
 
         // Hard budget: allow extension beyond soft, but cap aggressively.
-        long long hard = (soft * 5) / 2; // 2.5x
+        long long hard = (soft * 2); // 2.0x
 
         // Caps to prevent pathological long thinks when a lot of time remains.
         hard = std::min<long long>(hard, available);
-        hard = std::min<long long>(hard, my_time / 3); // <= ~33% of remaining time
+        hard = std::min<long long>(hard, my_time / 4); // <= 25% of remaining time
         hard = std::min<long long>(hard, soft * 4);    // <= 4x soft
 
         if (hard < 0)
@@ -326,7 +327,7 @@ namespace fast_engine
                 target_ms = std::min(target_ms, 500.0);
             // Keep this as a moderate adjustment around the initial optimum time.
             const double min_ms = std::max(1.0, double(base_soft_ms) * 0.60);
-            const double max_ms = std::min(double(base_hard_ms), double(base_soft_ms) * 1.35);
+            const double max_ms = std::min(double(base_hard_ms), double(base_soft_ms) * 1.15);
             target_ms = std::clamp(target_ms, min_ms, max_ms);
 
             control->soft_deadline = start + std::chrono::milliseconds(int(target_ms));
