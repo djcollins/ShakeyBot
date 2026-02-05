@@ -1,0 +1,36 @@
+{
+    "configurations": [
+        {
+            "name": "Win32",
+            "includePath": [
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/src",
+                "${workspaceFolder}/external",
+                "${workspaceFolder}/external/**",
+                "C:/Users/collinsd/Documents/Development_work/CPP_Stuff/winlibs-x86_64-posix-seh-gcc-15.2.0-mingw-w64ucrt-13.0.0-r4/mingw64/include",
+                "C:/Users/collinsd/Documents/Development_work/CPP_Stuff/winlibs-x86_64-posix-seh-gcc-15.2.0-mingw-w64ucrt-13.0.0-r4/mingw64/x86_64-w64-mingw32/include"
+            ],
+            "compilerPath": "C:/Users/collinsd/Documents/Development_work/CPP_Stuff/winlibs-x86_64-posix-seh-gcc-15.2.0-mingw-w64ucrt-13.0.0-r4/mingw64/bin/g++.exe",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "windows-gcc-x64",
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE"
+            ],
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/include",
+                    "${workspaceFolder}/src",
+                    "${workspaceFolder}/external",
+                    "${workspaceFolder}/external/**",
+                    "C:/Users/collinsd/Documents/Development_work/CPP_Stuff/winlibs-x86_64-posix-seh-gcc-15.2.0-mingw-w64ucrt-13.0.0-r4/mingw64/include",
+                    "C:/Users/collinsd/Documents/Development_work/CPP_Stuff/winlibs-x86_64-posix-seh-gcc-15.2.0-mingw-w64ucrt-13.0.0-r4/mingw64/x86_64-w64-mingw32/include"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
+        }
+    ],
+    "version": 4
+}
