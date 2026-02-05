@@ -1,0 +1,26 @@
+# Build outputs
+build/
+
+# Binaries and runtime artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Compiler/linker intermediates
+*.o
+*.obj
+*.d
+*.a
+*.lib
+*.pdb
+
+# Logs/temp
+*.log
+*.tmp
+*.bak
+
+# VSCode (keep only shared settings if desired)
+.vscode/*
+!.vscode/settings.json
+
