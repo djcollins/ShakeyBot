@@ -1,3 +1,4 @@
+
 bool find_best_move(chess::Board &board,
                     int depth,
                     const EngineConfig &config,

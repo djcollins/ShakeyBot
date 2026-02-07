@@ -1,3 +1,4 @@
+
 Score negamax(chess::Board &board,
               int depth,
               int ply,
@@ -112,7 +113,7 @@ Score negamax(chess::Board &board,
             //
             // This keeps the searched window stable for downstream pruning gates (razoring, NMP, etc.),
             // matching Stockfish's approach.
-            if (!pv && is_null_window_tt && depth > 0)
+            if (is_null_window_tt && depth > 0)
             {
                 const bool ttLower = (e.flag == TT_LOWERBOUND || e.flag == TT_EXACT);
                 const bool ttUpper = (e.flag == TT_UPPERBOUND || e.flag == TT_EXACT);
@@ -380,7 +381,7 @@ Score negamax(chess::Board &board,
                             ply,
                             beta - ONE_CP,
                             beta,
-                            /*pv=*/false,
+                             /*pv=*/false,
                             stats,
                             config,
                             use_quiescence,
@@ -538,7 +539,7 @@ Score negamax(chess::Board &board,
     // --- Internal Iterative Deepening (IID) ---
     // If we have no TT move at a PV node, run a reduced-depth search to seed a TT best-move
     // for move ordering (helps stabilize PV and reduces late PV changes).
-    if (allow_iid && config.use_iid && tt_here && !have_tt_best && depth >= 6 && pv)
+    if (allow_iid && config.use_iid && tt_here && !have_tt_best && depth >= 6 && !is_null_window)
     {
         const int iid_depth = (depth > 2 ? depth - 2 : 1);
         (void)negamax(board, iid_depth, ply, alpha, beta, pv, stats, config, use_quiescence,
@@ -570,7 +571,7 @@ Score negamax(chess::Board &board,
     // If the corrected static eval is already comfortably above beta, we can return early
     // at shallow non-PV nodes. This is a fail-high pruning gate (~50 Elo in SF12).
     if (config.use_quiescence &&
-        !pv &&
+        is_null_window &&
         !in_check &&
         !excluded_move_active &&
         ply > 0 &&
@@ -706,7 +707,7 @@ Score negamax(chess::Board &board,
         if (move_ext == 0 &&
             is_tt_move &&
             have_tt_entry &&
-            pv &&
+            !is_null_window &&
             !in_check &&
             ply > 0 &&
             depth >= SINGULAR_EXT_MIN_DEPTH &&
@@ -928,7 +929,7 @@ Score negamax(chess::Board &board,
                 ply + 1,
                 -beta,
                 -alpha,
-                /*pv=*/pv,
+                 /*pv=*/pv,
                 stats,
                 config,
                 use_quiescence,
@@ -985,7 +986,7 @@ Score negamax(chess::Board &board,
                 ply + 1,
                 -alpha - ONE_CP,
                 -alpha,
-                /*pv=*/false,
+                 /*pv=*/false,
                 stats,
                 config,
                 use_quiescence,
@@ -1022,7 +1023,7 @@ Score negamax(chess::Board &board,
                     ply + 1,
                     -beta,
                     -alpha,
-                    /*pv=*/pv,
+                     /*pv=*/pv,
                     stats,
                     config,
                     use_quiescence,
@@ -1262,3 +1263,4 @@ Score negamax(chess::Board &board,
     }
     return best_score;
 }
+
