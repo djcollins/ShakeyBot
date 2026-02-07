@@ -1,3 +1,4 @@
+
 Score qsearch(chess::Board &board,
               int ply,
               Score alpha,
