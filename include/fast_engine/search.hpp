@@ -114,6 +114,7 @@ namespace fast_engine
         int ply,
         Score alpha,
         Score beta,
+        bool pv,
         SearchStats &stats,
         const EngineConfig &config,
         bool use_quiescence,
