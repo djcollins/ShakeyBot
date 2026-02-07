@@ -767,7 +767,7 @@ double passed_pawn_term_for_color(const Board &board, Color c)
         bonus += b;
     }
 
-    return bonus;
+    return bonus*1.5;
 }
 
 double passed_pawn_term_white_minus_black(const Board &board)

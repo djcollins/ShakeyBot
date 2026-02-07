@@ -3,6 +3,7 @@ Score negamax(chess::Board &board,
               int ply,
               Score alpha,
               Score beta,
+              bool pv,
               SearchStats &stats,
               const EngineConfig &config,
               bool use_quiescence,
@@ -111,7 +112,7 @@ Score negamax(chess::Board &board,
             //
             // This keeps the searched window stable for downstream pruning gates (razoring, NMP, etc.),
             // matching Stockfish's approach.
-            if (is_null_window_tt && depth > 0)
+            if (!pv && is_null_window_tt && depth > 0)
             {
                 const bool ttLower = (e.flag == TT_LOWERBOUND || e.flag == TT_EXACT);
                 const bool ttUpper = (e.flag == TT_UPPERBOUND || e.flag == TT_EXACT);
@@ -343,6 +344,7 @@ Score negamax(chess::Board &board,
                         ply + 1,
                         -beta,
                         -beta + ONE_CP,
+                        /*pv=*/false,
                         stats,
                         config,
                         use_quiescence,
@@ -378,6 +380,7 @@ Score negamax(chess::Board &board,
                             ply,
                             beta - ONE_CP,
                             beta,
+                            /*pv=*/false,
                             stats,
                             config,
                             use_quiescence,
@@ -442,6 +445,7 @@ Score negamax(chess::Board &board,
                                      ply + 1,
                                      -probCutBeta,
                                      -probCutBeta + ONE_CP,
+                                     /*pv=*/false,
                                      stats,
                                      config,
                                      use_quiescence,
@@ -534,10 +538,10 @@ Score negamax(chess::Board &board,
     // --- Internal Iterative Deepening (IID) ---
     // If we have no TT move at a PV node, run a reduced-depth search to seed a TT best-move
     // for move ordering (helps stabilize PV and reduces late PV changes).
-    if (allow_iid && config.use_iid && tt_here && !have_tt_best && depth >= 6 && !is_null_window)
+    if (allow_iid && config.use_iid && tt_here && !have_tt_best && depth >= 6 && pv)
     {
         const int iid_depth = (depth > 2 ? depth - 2 : 1);
-        (void)negamax(board, iid_depth, ply, alpha, beta, stats, config, use_quiescence,
+        (void)negamax(board, iid_depth, ply, alpha, beta, pv, stats, config, use_quiescence,
                       /*allow_iid=*/false, tt, control);
         if (stats.stopped)
             return 0;
@@ -566,7 +570,7 @@ Score negamax(chess::Board &board,
     // If the corrected static eval is already comfortably above beta, we can return early
     // at shallow non-PV nodes. This is a fail-high pruning gate (~50 Elo in SF12).
     if (config.use_quiescence &&
-        is_null_window &&
+        !pv &&
         !in_check &&
         !excluded_move_active &&
         ply > 0 &&
@@ -582,7 +586,7 @@ Score negamax(chess::Board &board,
     // a dedicated TT PV bit (not merely by TT bounds). Our TT implementation does not
     // currently carry an explicit PV flag, so do NOT try to approximate ttPv from
     // TT_EXACT / depth — that tends to over-trigger PV-specific logic and can hurt strength.
-    const bool tt_pv_node = false;
+    const bool tt_pv_node = pv;
     if (picker.bad_caps.count > 0)
     {
         ++stats.badcap_gen_nodes;
@@ -702,7 +706,7 @@ Score negamax(chess::Board &board,
         if (move_ext == 0 &&
             is_tt_move &&
             have_tt_entry &&
-            !is_null_window &&
+            pv &&
             !in_check &&
             ply > 0 &&
             depth >= SINGULAR_EXT_MIN_DEPTH &&
@@ -731,6 +735,7 @@ Score negamax(chess::Board &board,
                         ply,
                         s_alpha,
                         s_beta,
+                        /*pv=*/false,
                         stats,
                         config,
                         use_quiescence,
@@ -923,6 +928,7 @@ Score negamax(chess::Board &board,
                 ply + 1,
                 -beta,
                 -alpha,
+                /*pv=*/pv,
                 stats,
                 config,
                 use_quiescence,
@@ -979,6 +985,7 @@ Score negamax(chess::Board &board,
                 ply + 1,
                 -alpha - ONE_CP,
                 -alpha,
+                /*pv=*/false,
                 stats,
                 config,
                 use_quiescence,
@@ -996,6 +1003,7 @@ Score negamax(chess::Board &board,
                     ply + 1,
                     -alpha - ONE_CP,
                     -alpha,
+                    /*pv=*/false,
                     stats,
                     config,
                     use_quiescence,
@@ -1014,6 +1022,7 @@ Score negamax(chess::Board &board,
                     ply + 1,
                     -beta,
                     -alpha,
+                    /*pv=*/pv,
                     stats,
                     config,
                     use_quiescence,
