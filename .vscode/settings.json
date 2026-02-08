@@ -1,6 +1,6 @@
 {
     "clangd.enabled": false,
-    "C_Cpp.errorSquiggles": "enabledIfIncludesResolve",
+    "C_Cpp.errorSquiggles": "disabled",
     "files.associations": {
         "*.inc": "cpp"
     }

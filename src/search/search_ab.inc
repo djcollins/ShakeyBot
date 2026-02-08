@@ -756,6 +756,7 @@ Score negamax(chess::Board &board,
         // Keep this cheap: only compute for quiet moves.
         int main_hist_score = 0;
         int cont12_score = 0;
+        int contx_score = 0; // continuation (ply-3..ply-6), scaled by MULTI_CONT_SCALE_PCT
         // Stockfish-style history signal for this quiet move:
         //  - pruning gate uses cont1+cont2 (here: cont12_score)
         //  - LMR adjustment uses cont12 + 68*main/32
@@ -774,7 +775,9 @@ Score negamax(chess::Board &board,
                 if (cur_pt >= 0 && cur_pt < NUM_ORDER_PT)
                 {
                     // In check, Stockfish only uses the first 2 continuation contexts.
-                    for (int dist = 1; dist <= 2; ++dist)
+                    // We keep cont12_score as (dist=1..2) for pruning gates; additional contexts (dist=3..6)
+                    // feed move ordering / LMR via contx_score, scaled by MULTI_CONT_SCALE_PCT.
+                    for (int dist = 1; dist <= 6; ++dist)
                     {
                         if (in_check && dist > 2)
                             break;
@@ -788,12 +791,28 @@ Score negamax(chess::Board &board,
                         if (prev_pt < 0 || prev_pt >= NUM_ORDER_PT)
                             continue;
                         const int prev_to = prev.to().index();
-                        cont12_score += cont_history_pc[s][prev_pt][prev_to][cur_pt][cur_to];
+
+                        int v = cont_history_pc[s][prev_pt][prev_to][cur_pt][cur_to];
+                        // Keep SF-style dist==5 downweight to reduce noise.
+                        if (dist == 5)
+                            v /= 3;
+
+                        if (dist <= 2)
+                        {
+                            cont12_score += v;
+                        }
+                        else if (MULTI_CONT_SCALE_PCT != 0)
+                        {
+                            // Scale only the additional lookbacks (ply-3..ply-6).
+                            v = static_cast<int>((static_cast<std::int64_t>(v) * MULTI_CONT_SCALE_PCT) / 100);
+                            contx_score += v;
+                        }
                     }
                 }
             }
             // Combined history term used for LMR adjustment (Stockfish: history += 68*main/32).
-            move_hist_score = cont12_score + (68 * main_hist_score) / 32;
+            const int cont_score = cont12_score + contx_score;
+            move_hist_score = cont_score + (68 * main_hist_score) / 32;
         }
         // Step 6B/6C/6D: Shallow forward pruning gates (Stockfish 17.1–anchored)
         //  - Move-count / LMP:            futility_move_count(improving, depth)
@@ -968,12 +987,12 @@ Score negamax(chess::Board &board,
                 // Stockfish: r -= ss->statScore * 1582 / 16384;
                 // For quiet, non-check moves we approximate statScore as:
                 //   2 * mainHistory + cont1 + cont2 - 3271
-                // where cont12_score is cont1+cont2 in our implementation.
+                // where cont12_score is cont1+cont2 in our implementation (pruning signal); move_hist_score includes scaled ply-3..ply-6 via MULTI_CONT_SCALE_PCT.
                 const int stat_score = 2 * main_hist_score + cont12_score - 3271;
                 const int r_fp = sf_lmr_adjusted_fp(improving, depth, move_count, delta, stat_score, tt_pv_node);
                 int lmr_depth = new_depth - (r_fp / 1024);
                 // Apply Stockfish history adjustment for quiet moves.
-                // move_hist_score is computed as: cont12_score + (68 * main_hist_score) / 32
+                // move_hist_score is computed as: (cont12 + scaled cont(3..6)) + (68 * main_history) / 32
                 lmr_depth += move_hist_score / 3593;
                 lmr_depth = std::max(1, lmr_depth);
                 reduced_depth = std::min(new_depth, lmr_depth);

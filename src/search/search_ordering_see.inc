@@ -93,7 +93,7 @@ static int score_move(const chess::Board &board,
             const int t = move.to().index();
             score += 2 * history_heur[stm][f][t];
         }
-        // Piece-aware continuation history (Stockfish-style: raw sum; dist==5 is downweighted)
+        // Piece-aware continuation history (Stockfish-style: raw sum; dist==5 downweighted; dist>=3 scaled by MULTI_CONT_SCALE_PCT)
         if (config.use_continuation_history)
         {
             const int cur_pt = pt_index(board.at(move.from()));
@@ -118,6 +118,8 @@ static int score_move(const chess::Board &board,
                     int v = cont_history_pc[stm][prev_pt][prev_to][cur_pt][cur_to];
                     if (dist == 5)
                         v /= 3;
+                    if (dist >= 3 && MULTI_CONT_SCALE_PCT != 100)
+                        v = static_cast<int>((static_cast<std::int64_t>(v) * MULTI_CONT_SCALE_PCT) / 100);
                     score += v;
                 }
             }
