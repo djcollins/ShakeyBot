@@ -618,6 +618,7 @@ Score negamax(chess::Board &board,
     int quiet_idx = 0;
     bool badcap_stage_seen = false;
     int movesSearched = 0;
+    int quietMovesSearched = 0; // quiet moves that survive pruning and are actually searched (for late quiet skipping)
     bool skip_quiet_moves = false; // Step 14 (SF): once moveCount reaches futility_move_count, skip remaining quiet non-checking moves
 
     // --- Principal Variation Search loop with LMR ---
@@ -905,8 +906,19 @@ Score negamax(chess::Board &board,
         if (depth >= 10 && is_quiet)
             ++stats.quiet_searched_ge10;
         const int moveCount = ++movesSearched;
-        // Step 6D (SF Step 14): once moveCount reaches the threshold, skip remaining quiet non-checking moves at this node.
-        if (is_null_window && ply > 0 && have_best && board.hasNonPawnMaterial(board.sideToMove()) && !skip_quiet_moves && moveCount >= sf_futility_move_count(improving, depth))
+        if (is_quiet)
+            ++quietMovesSearched;
+        const int quietMoveCount = quietMovesSearched;
+        
+        // Step 6D (SF Step 14): once enough *quiet* moves have been searched, skip remaining quiet non-checking moves.
+        // Using quietMoveCount (not total moveCount) avoids capture-heavy nodes prematurely skipping quiet defenses.
+        constexpr int MIN_QUIETS_BEFORE_SKIP = 2;
+        if (is_null_window && ply > 0 && have_best &&
+            board.hasNonPawnMaterial(board.sideToMove()) &&
+            !skip_quiet_moves &&
+            is_quiet && !gives_chk &&
+            quietMoveCount >= MIN_QUIETS_BEFORE_SKIP &&
+            quietMoveCount >= sf_futility_move_count(improving, depth))
         {
             skip_quiet_moves = true;
         }
