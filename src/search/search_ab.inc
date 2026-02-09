@@ -1,4 +1,89 @@
 
+// --- Pawn-push criticality (endgame / passed pawn awareness) ---
+// Purpose: protect passer creation/advances from the harshest late pruning and reductions.
+static inline int color_index(chess::Color c) noexcept
+{
+    return static_cast<int>(c.internal());
+}
+
+static inline std::uint64_t passed_mask_for_search(chess::Color us, int sq) noexcept
+{
+    static bool inited = false;
+    static std::uint64_t masks[2][64]; // [WHITE/BLACK][square]
+    if (!inited)
+    {
+        for (int s = 0; s < 64; ++s)
+        {
+            const int f = s & 7;
+            const int r = s >> 3;
+            std::uint64_t mw = 0, mb = 0;
+            for (int ff = std::max(0, f - 1); ff <= std::min(7, f + 1); ++ff)
+            {
+                for (int rr = r + 1; rr < 8; ++rr)
+                    mw |= 1ULL << (rr * 8 + ff);
+                for (int rr = r - 1; rr >= 0; --rr)
+                    mb |= 1ULL << (rr * 8 + ff);
+            }
+            masks[0][s] = mw; // WHITE
+            masks[1][s] = mb; // BLACK
+        }
+        inited = true;
+    }
+    return masks[color_index(us)][sq];
+}
+
+static inline int passed_progress_search(chess::Color us, int sq) noexcept
+{
+    const int r = sq >> 3;
+    return (color_index(us) == static_cast<int>(chess::Color::WHITE)) ? r : (7 - r);
+}
+
+static inline bool is_critical_endgame_pawn_push_search(const chess::Board &board, const chess::Move &move) noexcept
+{
+    // Promotions are always critical and should not be subject to the harshest pruning/reductions.
+    if (move.typeOf() == chess::Move::PROMOTION)
+        return true;
+
+    const chess::Piece p = board.at(move.from());
+    if (p.type() != chess::PieceType::PAWN)
+        return false;
+
+    // "Endgame-ish" gate: focus this protection on queenless positions.
+    if (board.pieces(chess::PieceType::QUEEN))
+        return false;
+
+    const chess::Color us = board.sideToMove();
+    const chess::Color them = chess::Color(~us.internal());
+
+    const int from = move.from().index();
+    const int to = move.to().index();
+
+    const std::uint64_t enemy_pawns = board.pieces(chess::PieceType::PAWN, them).getBits();
+
+    const bool passed_before = ((enemy_pawns & passed_mask_for_search(us, from)) == 0ULL);
+    const bool passed_after = ((enemy_pawns & passed_mask_for_search(us, to)) == 0ULL);
+
+    if (!passed_after)
+        return false;
+
+    const int prog_to = passed_progress_search(us, to);
+
+    // Strong signals:
+    //  - Any passed pawn reaching the 6th+ (from own POV) is usually critical in queenless endgames.
+    //  - Creating a new passer on the 5th+ is also typically critical.
+    if (prog_to >= 5)
+        return true;
+
+    if (!passed_before && prog_to >= 4)
+        return true;
+
+    // Advancing an existing passer into the "danger zone" (5th+) is also worth protecting.
+    if (passed_before && prog_to >= 4)
+        return true;
+
+    return false;
+}
+
 Score negamax(chess::Board &board,
               int depth,
               int ply,
@@ -618,7 +703,6 @@ Score negamax(chess::Board &board,
     int quiet_idx = 0;
     bool badcap_stage_seen = false;
     int movesSearched = 0;
-    int quietMovesSearched = 0; // quiet moves that survive pruning and are actually searched (for late quiet skipping)
     bool skip_quiet_moves = false; // Step 14 (SF): once moveCount reaches futility_move_count, skip remaining quiet non-checking moves
 
     // --- Principal Variation Search loop with LMR ---
@@ -649,6 +733,9 @@ Score negamax(chess::Board &board,
         if (is_quiet)
             quiet_index = quiet_idx++;
         const bool is_tt_move = (have_tt_best && move == tt_best_move);
+
+const bool critical_pawn_push =
+    is_quiet && !gives_chk && is_critical_endgame_pawn_push_search(board, move);
         // --- Selective check extension ---
         // Extend credible checking moves by +1 ply within a conservative depth/ply band.
         // Quiet checks are common and many are not forcing; only extend "credible" quiet checks.
@@ -700,7 +787,7 @@ Score negamax(chess::Board &board,
         }
         // Step 6D (SF): after the futility_move_count threshold is reached, we skip remaining quiet non-checking moves.
         // Important: do NOT skip TT move or checking moves.
-        if (skip_quiet_moves && is_quiet && !gives_chk && !is_tt_move)
+        if (skip_quiet_moves && is_quiet && !gives_chk && !is_tt_move && !critical_pawn_push)
             continue;
         // --- Singular extension (conservative) ---
         // If the TT indicates the hash move is clearly best (singular), extend it by +1 ply.
@@ -831,13 +918,13 @@ Score negamax(chess::Board &board,
             // Step 6D note: futility_move_count threshold is handled by setting skip_quiet_moves after moveCount is committed
 
             // Step 6C: Continuation history based pruning (uses cont12 only)
-            if (ENABLE_HISTORY_PRUNING && cont12_score < -4348 * depth)
+            if (!critical_pawn_push && ENABLE_HISTORY_PRUNING && cont12_score < -4348 * depth)
             {
                 continue;
             }
 
             // Step 6B: Extended futility pruning for quiet moves at shallow depths (2–4)
-            if (ENABLE_EXT_FUTILITY && have_static_eval && depth >= 2 && depth <= 4 && !first_move)
+            if (!critical_pawn_push && ENABLE_EXT_FUTILITY && have_static_eval && depth >= 2 && depth <= 4 && !first_move)
             {
                 // Compute the same lmrDepth proxy used by Stockfish's pruning layer:
                 //   lmrDepth = (depth-1) - r/1024 + (cont12 + 68*main/32)/3593
@@ -906,19 +993,8 @@ Score negamax(chess::Board &board,
         if (depth >= 10 && is_quiet)
             ++stats.quiet_searched_ge10;
         const int moveCount = ++movesSearched;
-        if (is_quiet)
-            ++quietMovesSearched;
-        const int quietMoveCount = quietMovesSearched;
-        
-        // Step 6D (SF Step 14): once enough *quiet* moves have been searched, skip remaining quiet non-checking moves.
-        // Using quietMoveCount (not total moveCount) avoids capture-heavy nodes prematurely skipping quiet defenses.
-        constexpr int MIN_QUIETS_BEFORE_SKIP = 2;
-        if (is_null_window && ply > 0 && have_best &&
-            board.hasNonPawnMaterial(board.sideToMove()) &&
-            !skip_quiet_moves &&
-            is_quiet && !gives_chk &&
-            quietMoveCount >= MIN_QUIETS_BEFORE_SKIP &&
-            quietMoveCount >= sf_futility_move_count(improving, depth))
+        // Step 6D (SF Step 14): once moveCount reaches the threshold, skip remaining quiet non-checking moves at this node.
+        if (is_null_window && ply > 0 && have_best && board.hasNonPawnMaterial(board.sideToMove()) && !skip_quiet_moves && moveCount >= sf_futility_move_count(improving, depth))
         {
             skip_quiet_moves = true;
         }
@@ -1009,6 +1085,14 @@ Score negamax(chess::Board &board,
                 lmr_depth = std::max(1, lmr_depth);
                 reduced_depth = std::min(new_depth, lmr_depth);
                 did_reduce = (reduced_depth < new_depth);
+
+if (critical_pawn_push && reduced_depth < new_depth)
+{
+    // Passed-pawn creation/advance in queenless positions is often decisive;
+    // protect these moves from the harshest reductions.
+    reduced_depth = std::min(new_depth, reduced_depth + 1);
+    did_reduce = (reduced_depth < new_depth);
+}
             }
             // 1) Reduced-depth null-window probe (or normal-depth if not reduced)
             score = -negamax(
