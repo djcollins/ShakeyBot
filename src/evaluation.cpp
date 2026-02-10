@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -33,6 +34,7 @@ namespace fast_engine
 #include "eval/01_material_phase.inc"
 #include "eval/02_material_imbalance_sf12.inc"
 #include "eval/03_endgame_scale_king_crowding.inc"
+#include "eval/03a_kpk_bitbase.inc"
 #include "eval/04_mobility.inc"
 #include "eval/05_outposts.inc"
 #include "eval/06_pawn_structure.inc"

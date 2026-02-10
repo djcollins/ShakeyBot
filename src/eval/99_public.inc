@@ -23,6 +23,18 @@ Score evaluate_white_pov_with_config(const Board &board,
     if (eval_cache_table().probe(k, cached))
         return cached;
 
+    // Exact KPK (K+P vs K) bitbase probe.
+    // This is perfectly stable and prevents static-eval based pruning gates from
+    // mis-evaluating pawn endgames.
+    {
+        Score kpk_eval = 0;
+        if (probe_kpk_exact_eval_white_pov(board, kpk_eval))
+        {
+            eval_cache_table().store(k, kpk_eval);
+            return kpk_eval;
+        }
+    }
+
     // Single phase signal reused by tapered terms:
     // opening-heavy at low values, endgame-heavy near 256.
     // This keeps all tapered terms aligned on the same game-phase estimate.
