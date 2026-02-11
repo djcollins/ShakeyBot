@@ -102,6 +102,21 @@ stop
 quit
 ```
 
+## Version released on 11 Feb 2026 
+Score of ShakeyBot_New vs ShakeyBot_Lichess: 1431 - 1114 - 1099 [0.543]
+
+...      ShakeyBot_New playing White: 754 - 520 - 548  [0.564] 1822
+
+...      ShakeyBot_New playing Black: 677 - 594 - 551  [0.523] 1822
+
+...      White vs Black: 1348 - 1197 - 1099  [0.521] 3644
+
+Elo difference: 30.3 +/- 9.4, LOS: 100.0 %, DrawRatio: 30.2 %
+
+SPRT: llr 0 (0.0%), lbound -inf, ubound inf
+
+3644 of 10000 games finished.
+
 ## Notes
 
 - Search and evaluation are currently organized as thin orchestrators (`src/search.cpp`, `src/evaluation.cpp`) that include internal module fragments under `src/search/*.inc` and `src/eval/*.inc`.
