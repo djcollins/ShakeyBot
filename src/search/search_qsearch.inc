@@ -286,7 +286,7 @@ Score qsearch(chess::Board &board,
               {
                   return a.score > b.score;
               });
-    constexpr Score DELTA_MARGIN = 50; // centipawns; conservative start
+    constexpr Score DELTA_MARGIN = 100; // centipawns; slightly less aggressive (safer tactics)
     for (int i = 0; i < count; ++i)
     {
         if (hard_stop(control, stats))
@@ -325,7 +325,7 @@ Score qsearch(chess::Board &board,
             const bool is_cap = board.isCapture(move) || (move.typeOf() == chess::Move::ENPASSANT);
             if (is_cap && board.givesCheck(move) == chess::CheckType::NO_CHECK)
             {
-                constexpr int SEE_QS_PRUNE_CP = 100;
+                constexpr int SEE_QS_PRUNE_CP = 200; // prune only clearly losing captures
                 if (see_cp(board, move) < -SEE_QS_PRUNE_CP)
                 {
                     continue;

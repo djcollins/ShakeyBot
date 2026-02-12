@@ -701,6 +701,7 @@ Score negamax(chess::Board &board,
     // Under staged MovePicker ordering, the overall move index (mi) mixes TT/promos/captures/quiets.
     // For futility/LMP/LMR gates that are intended to apply to *late quiet moves*, use a quiet-only index.
     int quiet_idx = 0;
+    int quiet_searched = 0; // quiet moves actually searched (after forward-pruning gates)
     bool badcap_stage_seen = false;
     int movesSearched = 0;
     bool skip_quiet_moves = false; // Step 14 (SF): once moveCount reaches futility_move_count, skip remaining quiet non-checking moves
@@ -918,7 +919,7 @@ const bool critical_pawn_push =
             // Step 6D note: futility_move_count threshold is handled by setting skip_quiet_moves after moveCount is committed
 
             // Step 6C: Continuation history based pruning (uses cont12 only)
-            if (!critical_pawn_push && ENABLE_HISTORY_PRUNING && cont12_score < -4348 * depth)
+            if (!critical_pawn_push && ENABLE_HISTORY_PRUNING && quiet_index >= 3 && cont12_score < -5200 * depth)
             {
                 continue;
             }
@@ -941,7 +942,7 @@ const bool critical_pawn_push =
                     lmr_depth = 0;
 
                 // Stockfish: base = (bestMove ? 48 : 146)
-                const int base = have_best ? 48 : 146;
+                const int base = have_best ? 64 : 162; // slightly less aggressive
                 const int extra = (best_score < static_eval - 128) ? 103 : 0;
                 const Score futility_value = static_eval + static_cast<Score>(base + 116 * lmr_depth + extra);
 
@@ -993,8 +994,9 @@ const bool critical_pawn_push =
         if (depth >= 10 && is_quiet)
             ++stats.quiet_searched_ge10;
         const int moveCount = ++movesSearched;
+        if (is_quiet) ++quiet_searched;
         // Step 6D (SF Step 14): once moveCount reaches the threshold, skip remaining quiet non-checking moves at this node.
-        if (is_null_window && ply > 0 && have_best && board.hasNonPawnMaterial(board.sideToMove()) && !skip_quiet_moves && moveCount >= sf_futility_move_count(improving, depth))
+        if (is_null_window && ply > 0 && have_best && board.hasNonPawnMaterial(board.sideToMove()) && !skip_quiet_moves && is_quiet && quiet_searched >= 4 && quiet_searched >= sf_futility_move_count(improving, depth) + 2)
         {
             skip_quiet_moves = true;
         }
