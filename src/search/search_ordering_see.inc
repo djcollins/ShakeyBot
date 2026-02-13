@@ -51,7 +51,7 @@ static int score_move(const chess::Board &board,
         else
             score += 800'000;
     }
-    // 3) Captures: MVV-LVA base + capture history (Stockfish-shaped)
+    // 3) Captures: MVV-LVA base + capture history
     //    Note: good/bad capture splitting is done in order_moves() via SEE.
     if (is_capture)
     {
@@ -75,7 +75,7 @@ static int score_move(const chess::Board &board,
             {
                 // Captures: MVV-LVA base. Within captures, MVV-LVA is a stable base.
                 score += 200'000 + 200 * PIECE_ORDER_VALUE[v_idx] - PIECE_ORDER_VALUE[a_idx];
-                // Stockfish: capture history is added directly.
+                // Capture history is added directly.
                 if (config.use_capture_history)
                     score += (config.capture_history_ordering_mult) *
                              (capture_history[stm][a_idx][move.to().index()][v_idx] >> CAPTURE_HISTORY_SCORE_SHIFT_MAIN);
@@ -93,7 +93,7 @@ static int score_move(const chess::Board &board,
             const int t = move.to().index();
             score += 2 * history_heur[stm][f][t];
         }
-        // Piece-aware continuation history (Stockfish-style: raw sum; dist==5 downweighted; dist>=3 scaled by MULTI_CONT_SCALE_PCT)
+        // Piece-aware continuation history (Raw sum; dist==5 downweighted; dist>=3 scaled by MULTI_CONT_SCALE_PCT)
         if (config.use_continuation_history)
         {
             const int cur_pt = pt_index(board.at(move.from()));
@@ -124,14 +124,14 @@ static int score_move(const chess::Board &board,
                 }
             }
         }
-        // Quiet check bonus (Stockfish value)
+        // Quiet check bonus
         if (board.givesCheck(move) != CheckType::NO_CHECK)
             score += 16'384;
     }
     return score;
 }
 // Order a Movelist in-place, best-first, using score_move.
-// Order a Movelist in-place using a Stockfish-style stage split:
+// Order a Movelist in-place using a stage split:
 //   1) TT move
 //   2) Promotions
 //   3) Good captures (SEE >= dynamic threshold OR checking capture)
@@ -156,7 +156,7 @@ static void order_moves(const chess::Board &board,
         int score;
     };
 
-    // Helper: compute Stockfish-shaped "good capture" SEE threshold for this capture.
+    // Helper: compute "good capture" SEE threshold for this capture.
     auto good_capture_threshold_cp = [&](const Move &m) -> int
     {
         const int stm = stm_index(board);
@@ -183,7 +183,7 @@ static void order_moves(const chess::Board &board,
             ch = (config.capture_history_ordering_mult) *
                  (capture_history[stm][a_idx][m.to().index()][v_idx] >> CAPTURE_HISTORY_SCORE_SHIFT_MAIN);
 
-        // SF-style shaping: allow a small band of slightly-negative captures in "good".
+        // Allow a small band of slightly-negative captures in "good".
         const int value = 7 * PIECE_ORDER_VALUE[v_idx] + ch;
         return -value / 18;
     };
@@ -637,7 +637,7 @@ inline int see_cp(const chess::Board &board, const chess::Move &move)
     }
     // Back-propagate with minimax. After the initial capture, the opponent
     // chooses whether to recapture; then we may choose whether to continue,
-    // etc. The Stockfish-style formulation below yields the correct sign
+    // etc. The formulation below yields the correct sign
     // for losing exchanges (e.g., QxP ... xQ).
     for (int i = depth - 1; i >= 0; --i)
     {

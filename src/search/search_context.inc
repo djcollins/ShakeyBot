@@ -74,7 +74,7 @@ constexpr int CHECK_EXT_MIN_SEE_CP = -50;
 constexpr int ONE_REPLY_EXT_MIN_DEPTH = 1;
 constexpr int ONE_REPLY_EXT_MAX_DEPTH = 12;
 constexpr int ONE_REPLY_EXT_MAX_PLY = 64;
-// Singular extensions (hash move): conservative Laser/Stockfish-style.
+// Singular extensions (hash move): conservative.
 // Only consider at relatively deep PV nodes with a confident TT entry.
 // Tune knob: lower = more aggressive (more extensions), higher = more conservative.
 constexpr int SINGULAR_EXT_MIN_DEPTH = 10; // try 6 (aggressive) .. 10 (very conservative)
@@ -154,7 +154,7 @@ constexpr int PIECE_ORDER_VALUE[NUM_ORDER_PT] = {
     900,  // QUEEN
     20000 // KING
 };
-constexpr int MAX_PLY = 246; // Stockfish 17.1 MAX_PLY
+constexpr int MAX_PLY = 246;
 // Singular extension verification needs to search the current node with the TT move excluded.
 // We implement this via a thread_local excluded move that is only active at a specific ply
 // (so it affects only that node, not its descendants).
@@ -184,17 +184,17 @@ static int moved_pt_stack[MAX_PLY + 1]; // moved piece-type (index) for move_sta
 static chess::Move killer_moves[2][MAX_PLY + 1];
 static chess::Move counter_moves[2][64][64]; // [stm][prev_from][prev_to] -> quiet refutation move
                                              // [0]=primary, [1]=secondary (quiet beta-cutoff moves)
-// Per-ply bookkeeping used for Stockfish-style learning hooks (Step 4+).
+// Per-ply bookkeeping used for learning hooks.
 // These are written alongside move_stack/moved_pt_stack and will be consumed by
 // upcoming Step-4 alignment chunks (TT fail-high learning and refutation penalties).
 static int parent_move_count_stack[MAX_PLY + 1]; // parent node moveCount when this ply was entered
 static bool prior_capture_stack[MAX_PLY + 1];    // whether the move that entered this ply was a capture
 static bool tt_hit_stack[MAX_PLY + 1];           // whether this ply had a TT hit (wired in later steps)
 static bool in_check_stack[MAX_PLY + 1];         // whether side-to-move is in check at this ply (wired in later steps)
-// Per-ply static evaluation cache (centipawns) used for "improving" signal (Stockfish-style).
+// Per-ply static evaluation cache (centipawns) used for "improving" signal .
 // Note: ply parity matters; "improving" compares ss->staticEval with (ss-2)->staticEval (same side to move).
 static Score static_eval_stack[MAX_PLY + 1];
-// Stockfish-style LMR reduction tables (fixed-point scale 1024).
+// LMR reduction tables (fixed-point scale 1024).
 static int lmr_reductions[MAX_PLY + 2];
 static std::once_flag lmr_tables_once;
 static thread_local int lmr_root_delta = 1;
@@ -205,15 +205,14 @@ inline void init_lmr_tables_once()
                 lmr_reductions[0] = 0;
                 for (int i = 1; i <= MAX_PLY + 1; ++i)
                 {
-                    // Stockfish 17.1: reductions[i] = int(2954 / 128.0 * log(i))
-                    lmr_reductions[i] = static_cast<int>((2954.0 / 128.0) * std::log(static_cast<double>(i)));
+                    //reductions[i] = int(2954 / 128.0 * log(i))
+                    lmr_reductions[i] = static_cast<int>((2955.0 / 128.0) * std::log(static_cast<double>(i)));
                 } });
 }
 
 inline int sf_lmr_reduction_fp(bool improving, int depth, int moveCount, int delta, bool ttPvNode)
 {
     (void)ttPvNode;
-    // Mirrors Stockfish 17.1 Worker::reduction() (fixed-point 1024), including delta/rootDelta term.
     // reductionScale = reductions[depth] * reductions[moveCount]
     const int d = std::clamp(depth, 0, MAX_PLY + 1);
     const int mn = std::clamp(moveCount, 1, MAX_PLY + 1);
@@ -227,9 +226,9 @@ inline int sf_lmr_reduction_fp(bool improving, int depth, int moveCount, int del
     return r;
 }
 
-inline int sf_lmr_adjusted_fp(bool improving, int depth, int moveCount, int delta, int statScore, bool ttPvNode)
+inline int lmr_adjusted_fp(bool improving, int depth, int moveCount, int delta, int statScore, bool ttPvNode)
 {
-    // Mirrors Stockfish's fixed-point LMR shape:
+    // Fixed-point LMR:
     //   r = reduction(improving, depth, moveCount, delta)
     //   r -= 32 * moveCount
     //   if (ttPv) r += 979
@@ -244,15 +243,15 @@ inline int sf_lmr_adjusted_fp(bool improving, int depth, int moveCount, int delt
 
 inline int sf_futility_move_count(bool improving, int depth) noexcept
 {
-    // Stockfish 17.1: (3 + depth*depth) / (2 - improving)
+    // Movecount = (3 + depth*depth) / (2 - improving)
     const int d = std::max(0, depth);
     const int denom = 2 - (improving ? 1 : 0);
     return (3 + d * d) / denom;
 }
 
-inline Score sf_child_futility_margin(int depth, bool improving) noexcept
+inline Score child_futility_margin(int depth, bool improving) noexcept
 {
-    // Stockfish 12: 223 * (d - improving)
+    // 223 * (d - improving)
     // "improving" reduces the margin (more aggressive pruning when the position is improving).
     const int d = std::max(0, depth) - (improving ? 1 : 0);
     return static_cast<Score>(223 * std::max(0, d));
@@ -264,7 +263,6 @@ static int cont_history_pc[2][NUM_ORDER_PT][64][NUM_ORDER_PT][64]; // [stm][prev
 constexpr int CORR_HIST_SIZE = 16384; // power of two
 static std::int16_t corr_hist[2][CORR_HIST_SIZE];
 // History tables are used directly as ordering scores. Keep them bounded to avoid runaway values.
-// Stockfish uses intentionally different ranges for each table:
 //   - Main (butterfly) history: 7183
 //   - Capture history:         10692
 //   - Continuation history:    30000
@@ -277,7 +275,7 @@ constexpr int CAPTURE_HISTORY_CAP = 10'692;
 constexpr int CAPTURE_HISTORY_MIN = -CAPTURE_HISTORY_CAP;
 // Max searched quiet moves retained for end-of-node history malus updates.
 constexpr int MAX_QUIET_TRIED = 32;
-// Capture-history contribution in move ordering (Stockfish-style: do not downshift).
+// Capture-history contribution in move ordering.
 constexpr int CAPTURE_HISTORY_SCORE_SHIFT_MAIN = 0;
 constexpr int CAPTURE_HISTORY_SCORE_SHIFT_QS = 0;
 // Razoring is intended as a shallow, middlegame pruning.
@@ -369,7 +367,7 @@ inline bool tactically_volatile_for_razoring(const chess::Board &board) noexcept
 }
 inline void update_history_entry(int &v, int delta, int cap, int minv) noexcept
 {
-    // Saturating history update (Stockfish-style form): v <- v + delta - v*|delta|/cap, with clamps.
+    // Saturating history update: v <- v + delta - v*|delta|/cap, with clamps.
     // This yields fast learning early, and asymptotically saturates near +/-cap.
     if (delta > cap)
         delta = cap;
@@ -397,7 +395,7 @@ inline void update_capture_history_entry(int &v, int delta) noexcept
 {
     update_history_entry(v, delta, CAPTURE_HISTORY_CAP, CAPTURE_HISTORY_MIN);
 }
-// Stockfish-alignment helpers (Step 4+).
+// Helpers:
 // These are intentionally board-independent: they operate on precomputed indices,
 // so future refutation/TT learning hooks can update continuation history without
 // relying on pieces still being present on the board squares.
@@ -425,7 +423,7 @@ inline void update_capture_history_entry(int &v, int delta) noexcept
 // Null-move pruning is occasionally disabled for verification searches (zugzwang safety)
 // and for the null-search itself (avoid consecutive nulls).
 static thread_local bool g_allow_null_move = true;
-// Stockfish-style verification search disables null-move pruning until a minimum ply.
+// Verification search disables null-move pruning until a minimum ply.
 // This prevents recursive NMP during verification and improves zugzwang safety.
 static thread_local int g_nmp_min_ply = 0;
 struct ScopedNmpMinPly

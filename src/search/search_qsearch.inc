@@ -43,7 +43,7 @@ Score qsearch(chess::Board &board,
     clamp_mate_window(alpha, beta, ply);
     if (alpha >= beta)
         return alpha;
-    // Max-ply safety (Stockfish-like): avoid overflowing ply-indexed stacks/tables.
+    // Max-ply safety : avoid overflowing ply-indexed stacks/tables.
     // At MAX_PLY, we do not expand further. If in check, return mate if no evasion else draw.
     if (ply >= MAX_PLY)
     {

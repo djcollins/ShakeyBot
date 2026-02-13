@@ -146,7 +146,7 @@ struct MovePicker
             }
             if (is_cap)
             {
-                // Split captures into good/bad using Stockfish-shaped dynamic SEE threshold:
+                // Split captures into good/bad using dynamic SEE threshold:
                 //   good if SEE >= -value/18, where value = 7*VictimValue + CaptureHistory.
                 // This keeps a small class of slightly-negative captures in the "good" bucket.
                 const int see = see_cp(b, m);

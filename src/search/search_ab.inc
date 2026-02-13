@@ -110,7 +110,7 @@ Score negamax(chess::Board &board,
     {
         return 0;
     }
-    // Max-ply safety (Stockfish-like): prevent ply-stack overflow in pathological lines.
+    // Max-ply safety: prevent ply-stack overflow in pathological lines.
     if (ply >= MAX_PLY)
     {
         chess::Movelist mvs;
@@ -168,7 +168,7 @@ Score negamax(chess::Board &board,
     // TT cutoffs are only safe/reliable in null-window (cut) nodes.
     // Do not attempt to infer PV-ness from window width beyond this gate; PV semantics are handled elsewhere.
     const bool is_null_window_tt = (beta - alpha) <= ONE_CP;
-    // Initialize Stockfish-style LMR tables and root aspiration delta (used in LMR reduction formula).
+    // Initialize LMR tables and root aspiration delta (used in LMR reduction formula).
     init_lmr_tables_once();
     if (ply == 0)
         lmr_root_delta = std::max(1, static_cast<int>(beta - alpha));
@@ -192,17 +192,16 @@ Score negamax(chess::Board &board,
                 tt_best_move = e.bestMove;
                 have_tt_best = true;
             }
-            // Stockfish-style early TT cutoff (non-PV / null-window nodes only).
+            // Early TT cutoff (non-PV / null-window nodes only).
             // Important: do not tighten alpha/beta here; only return if the TT entry already
             // implies the node fails high/low at the current beta.
             //
-            // This keeps the searched window stable for downstream pruning gates (razoring, NMP, etc.),
-            // matching Stockfish's approach.
+            // This keeps the searched window stable for downstream pruning gates (razoring, NMP, etc.).
             if (is_null_window_tt && depth > 0)
             {
                 const bool ttLower = (e.flag == TT_LOWERBOUND || e.flag == TT_EXACT);
                 const bool ttUpper = (e.flag == TT_UPPERBOUND || e.flag == TT_EXACT);
-                // Stockfish depth gate: ttDepth > depth - (ttValue <= beta)
+                //  Gate: ttDepth > depth - (ttValue <= beta)
                 //  - If tt_value  < beta (fail-low), requires ttDepth >= depth
                 //  - If tt_value == beta (borderline fail-high), requires ttDepth >= depth
                 //  - If tt_value  > beta (clear fail-high), requires ttDepth >= depth + 1
@@ -213,10 +212,10 @@ Score negamax(chess::Board &board,
                     const bool failHigh = (tt_value >= beta);
                     if ((failHigh && ttLower) || (!failHigh && ttUpper))
                     {
-                        // Step 4 (Stockfish-style): TT fail-high learning hook.
+                        // TT fail-high learning hook.
                         // If the TT entry causes an immediate fail-high cutoff at this node (non-PV/null-window),
-                        // Stockfish still updates quiet histories for the TT move and applies a continuation
-                        // penalty to early quiet parent moves (when applicable).
+                        // 1) still update quiet histories for the TT move
+                        // 2) apply a continuation penalty to early quiet parent moves (when applicable).
                         if (failHigh)
                         {
                             // 1) Quiet TT move bonus (main history + continuation histories)
@@ -232,19 +231,17 @@ Score negamax(chess::Board &board,
                                         const int s = stm_index(board);
                                         const int f = hm.from().index();
                                         const int t = hm.to().index();
-                                        // Stockfish: min(120*depth - 75, 1241)
-                                        const int bonus_tt = std::min(120 * depth - 75, 1241);
+                                        const int bonus_tt = std::min(120 * depth - 75, 1241); // TO BE TUNED
                                         update_main_history_entry(history_heur[s][f][t], bonus_tt);
-                                        // Stockfish: update_continuation_histories(..., bonus * 1004/1024)
                                         if (config.use_continuation_history && ply > 0)
                                         {
                                             const int cur_pt = pt_index(board.at(hm.from()));
-                                            const int cont_tt = (bonus_tt * 1004) / 1024;
-                                            static constexpr std::array<int, 7> W = {0, 1103, 659, 323, 533, 121, 474};
+                                            const int cont_tt = (bonus_tt * 1004) / 1024; // TO BE TUNED
+                                            static constexpr std::array<int, 7> W = {0, 1102, 658, 325, 535, 125, 475};
                                             const bool in_check_tt = board.inCheck();
                                             for (int i = 1; i <= 6; ++i)
                                             {
-                                                // Stockfish: Only update the first 2 continuation contexts if in check.
+                                                // Only update the first 2 continuation contexts if in check.
                                                 if (in_check_tt && i > 2)
                                                     break;
                                                 if (ply < i)
@@ -267,7 +264,7 @@ Score negamax(chess::Board &board,
                                 }
                             }
                             // 2) Parent early quiet move continuation penalty
-                            // Stockfish condition: prevSq != NONE, (ss-1)->moveCount <= 3, and !priorCapture
+                            // Condition: prevSq != NONE, (ss-1)->moveCount <= 3, and !priorCapture
                             if (config.use_continuation_history && ply > 0 && parent_move_count_stack[ply] <= 3 && !prior_capture_stack[ply])
                             {
                                 const chess::Move pm = move_stack[ply];
@@ -333,11 +330,11 @@ Score negamax(chess::Board &board,
         alpha > -MATE_BOUND)
     {
         Score se = node_corr_eval;
-        const Score margin = static_cast<Score>(461 + 315 * depth * depth); // Stockfish 17.1 (cp)
+        const Score margin = static_cast<Score>(460 + 310 * depth * depth); // TO BE TUNED
         if (se + margin <= alpha)
         {
             ++stats.razor_attempts;
-            // Stockfish shape: return qsearch at the node window if the static-eval gate already fails low.
+            // Return qsearch at the node window if the static-eval gate already fails low.
             const Score qs = qsearch(board, ply, alpha, beta, stats, config, control);
             if (stats.stopped)
                 return 0;
@@ -374,12 +371,12 @@ Score negamax(chess::Board &board,
             board.hasNonPawnMaterial(board.sideToMove()))
         {
             Score static_eval = node_corr_eval;
-            // Stockfish 17.1 gate: require eval close to beta with depth-scaled margin.
+            // Gate: require eval close to beta with depth-scaled margin.
             if (static_eval >= beta &&
-                static_eval >= beta - static_cast<Score>(19 * depth) + static_cast<Score>(418))
+                static_eval >= beta - static_cast<Score>(19 * depth) + static_cast<Score>(420)) // 420 blaze it
             {
                 const int delta = static_cast<int>(static_eval - beta);
-                int R = std::min(delta / 232, 6) + depth / 3 + 5;
+                int R = std::min(delta / 235, 6) + depth / 3 + 5;
                 // Material-sensitive adjustment: NMP is less reliable in simplified (heavy-piece-less) positions.
                 // Reduce the baseline reduction to improve zugzwang safety in minor-only / low-heavy endgames.
                 //
@@ -449,7 +446,7 @@ Score negamax(chess::Board &board,
                     return 0;
                 if (null_score >= beta && null_score < MATE_BOUND)
                 {
-                    // Stockfish 17.1: return fail-soft at shallow depths or when already in verification.
+                    // Return fail-soft at shallow depths or when already in verification.
                     if (g_nmp_min_ply != 0 || depth < 16)
                         return null_score;
                     int verify_depth = depth - R;
@@ -466,7 +463,7 @@ Score negamax(chess::Board &board,
                             ply,
                             beta - ONE_CP,
                             beta,
-                             /*pv=*/false,
+                            /*pv=*/false,
                             stats,
                             config,
                             use_quiescence,
@@ -482,7 +479,7 @@ Score negamax(chess::Board &board,
             }
         }
     }
-    // --- ProbCut (Stockfish 17.1 shape, null-window only) ---
+    // --- ProbCut (null-window only) ---
     // If a reduced search on a strong capture returns a value well above beta, we can prune.
     const Score probCutBeta = beta + static_cast<Score>(185);
     if (config.use_probcut &&
@@ -493,7 +490,7 @@ Score negamax(chess::Board &board,
         !(have_tt_entry && tt_entry_value < probCutBeta))
     {
         const int probCutDepth = std::max(depth - 4, 0);
-        // Guide candidate selection similarly to Stockfish's MovePicker by using a SEE threshold
+        // Guide candidate selection by using a SEE threshold
         // derived from (probCutBeta - staticEval).
         Score pc_static = node_corr_eval;
         const int minSeeCp = std::max(0, static_cast<int>(probCutBeta - pc_static));
@@ -521,7 +518,7 @@ Score negamax(chess::Board &board,
                     in_check_stack[ply + 1] = false;
                 }
                 board.makeMove(m);
-                // Preliminary qsearch verification (Stockfish-style).
+                // Preliminary qsearch verification .
                 Score score = -qsearch(board, ply + 1, -probCutBeta, -probCutBeta + ONE_CP, stats, config, control);
                 // If the qsearch held, perform the reduced-depth search.
                 if (score >= probCutBeta && probCutDepth > 0)
@@ -544,7 +541,7 @@ Score negamax(chess::Board &board,
                     return 0;
                 if (score >= probCutBeta)
                 {
-                    // Store a lower bound at an effective depth similar to Stockfish's (probCutDepth + 1).
+                    // Store a lower bound at an effective depth  (probCutDepth + 1).
                     if (tt_here)
                     {
                         const int store_depth = std::max(depth - 3, 0);
@@ -645,16 +642,16 @@ Score negamax(chess::Board &board,
     // --- Move ordering: MovePicker staged ordering ---
     const chess::Move *tt_move_ptr = have_tt_best ? &tt_best_move : nullptr;
     MovePicker picker(board, moves, tt_move_ptr, killer_moves[0][ply], killer_moves[1][ply], ply, depth, config);
-    // Stockfish-style "improving" signal for LMR: compare static eval with same-side-to-move eval two plies earlier.
+    // "Improving" signal for LMR: compare static eval with same-side-to-move eval two plies earlier.
     // We compute this once per node and store it for (ply-2) lookups.
     Score node_static_eval = node_corr_eval;
     if (ply >= 0 && ply <= MAX_PLY)
         static_eval_stack[ply] = node_static_eval;
     const bool improving = (ply >= 2 && ply <= MAX_PLY && node_static_eval >= static_eval_stack[ply - 2]);
 
-    // --- Stockfish 12 Step 8: child-node futility pruning (reverse-futility) ---
+    // Child-node futility pruning (reverse-futility) ---
     // If the corrected static eval is already comfortably above beta, we can return early
-    // at shallow non-PV nodes. This is a fail-high pruning gate (~50 Elo in SF12).
+    // at shallow non-PV nodes. This is a fail-high pruning gate.
     if (config.use_quiescence &&
         is_null_window &&
         !in_check &&
@@ -664,13 +661,13 @@ Score negamax(chess::Board &board,
         beta < MATE_BOUND &&
         alpha > -MATE_BOUND &&
         node_static_eval < MATE_BOUND &&
-        node_static_eval - sf_child_futility_margin(depth, improving) >= beta)
+        node_static_eval - child_futility_margin(depth, improving) >= beta)
     {
         return node_static_eval;
     }
-    // Stockfish's ss->ttPv is an internal PV hint stored in the per-ply stack and driven by
+    // ss->ttPv is an internal PV hint stored in the per-ply stack and driven by
     // a dedicated TT PV bit (not merely by TT bounds). Our TT implementation does not
-    // currently carry an explicit PV flag, so do NOT try to approximate ttPv from
+    // currently carry an explicit PV flag, so we don't approximate ttPv from
     // TT_EXACT / depth — that tends to over-trigger PV-specific logic and can hurt strength.
     const bool tt_pv_node = pv;
     if (picker.bad_caps.count > 0)
@@ -704,7 +701,7 @@ Score negamax(chess::Board &board,
     int quiet_searched = 0; // quiet moves actually searched (after forward-pruning gates)
     bool badcap_stage_seen = false;
     int movesSearched = 0;
-    bool skip_quiet_moves = false; // Step 14 (SF): once moveCount reaches futility_move_count, skip remaining quiet non-checking moves
+    bool skip_quiet_moves = false; // Once moveCount reaches futility_move_count, skip remaining quiet non-checking moves
 
     // --- Principal Variation Search loop with LMR ---
     chess::Move move{};
@@ -735,8 +732,8 @@ Score negamax(chess::Board &board,
             quiet_index = quiet_idx++;
         const bool is_tt_move = (have_tt_best && move == tt_best_move);
 
-const bool critical_pawn_push =
-    is_quiet && !gives_chk && is_critical_endgame_pawn_push_search(board, move);
+        const bool critical_pawn_push =
+            is_quiet && !gives_chk && is_critical_endgame_pawn_push_search(board, move);
         // --- Selective check extension ---
         // Extend credible checking moves by +1 ply within a conservative depth/ply band.
         // Quiet checks are common and many are not forcing; only extend "credible" quiet checks.
@@ -786,7 +783,7 @@ const bool critical_pawn_push =
                     move_ext = 1;
             }
         }
-        // Step 6D (SF): after the futility_move_count threshold is reached, we skip remaining quiet non-checking moves.
+        // After the futility_move_count threshold is reached, we skip remaining quiet non-checking moves.
         // Important: do NOT skip TT move or checking moves.
         if (skip_quiet_moves && is_quiet && !gives_chk && !is_tt_move && !critical_pawn_push)
             continue;
@@ -846,7 +843,7 @@ const bool critical_pawn_push =
         int main_hist_score = 0;
         int cont12_score = 0;
         int contx_score = 0; // continuation (ply-3..ply-6), scaled by MULTI_CONT_SCALE_PCT
-        // Stockfish-style history signal for this quiet move:
+        // History signal for this quiet move:
         //  - pruning gate uses cont1+cont2 (here: cont12_score)
         //  - LMR adjustment uses cont12 + 68*main/32
         int move_hist_score = 0;
@@ -863,7 +860,7 @@ const bool critical_pawn_push =
                 const int cur_to = t;
                 if (cur_pt >= 0 && cur_pt < NUM_ORDER_PT)
                 {
-                    // In check, Stockfish only uses the first 2 continuation contexts.
+                    // In check, Only use the first 2 continuation contexts.
                     // We keep cont12_score as (dist=1..2) for pruning gates; additional contexts (dist=3..6)
                     // feed move ordering / LMR via contx_score, scaled by MULTI_CONT_SCALE_PCT.
                     for (int dist = 1; dist <= 6; ++dist)
@@ -882,7 +879,7 @@ const bool critical_pawn_push =
                         const int prev_to = prev.to().index();
 
                         int v = cont_history_pc[s][prev_pt][prev_to][cur_pt][cur_to];
-                        // Keep SF-style dist==5 downweight to reduce noise.
+                        // dist==5 downweight to reduce noise.
                         if (dist == 5)
                             v /= 3;
 
@@ -899,57 +896,54 @@ const bool critical_pawn_push =
                     }
                 }
             }
-            // Combined history term used for LMR adjustment (Stockfish: history += 68*main/32).
+            // Combined history term used for LMR adjustment .
             const int cont_score = cont12_score + contx_score;
-            move_hist_score = cont_score + (68 * main_hist_score) / 32;
+            move_hist_score = cont_score + (64 * main_hist_score) / 32;
         }
-        // Step 6B/6C/6D: Shallow forward pruning gates (Stockfish 17.1–anchored)
+        // Shallow forward pruning gates
         //  - Move-count / LMP:            futility_move_count(improving, depth)
-        //  - Continuation history prune:  cont12 < -4348 * depth
-        //  - Extended futility (quiet):   staticEval + (bestMove?48:146) + 116*lmrDepth (+ small bonus when bestValue << staticEval)
+        //  - Continuation history prune:  cont12 < -6500 * depth
+        //  - Extended futility (quiet):   staticEval + (bestMove?64 : 162) + 116*lmrDepth (+ small bonus when bestValue << staticEval)
         //
         // Gates: null-window only, not in check, quiet non-checking moves.
-        const int prospectiveMoveCount = movesSearched + 1; // Stockfish-style moveCount, before committing to search
+        const int prospectiveMoveCount = movesSearched + 1; // MoveCount, before committing to search
 
         if (is_null_window && ply > 0 && !in_check && have_best && board.hasNonPawnMaterial(board.sideToMove()) && is_quiet && !gives_chk)
         {
-            // Step 6D: Late-move pruning / move-count pruning threshold (Stockfish futility_move_count)
-            // In Stockfish this is implemented via MovePicker::skip_quiet_moves(); here we equivalently
-            // skip searching the remaining quiet moves once the threshold is exceeded.
-            // Step 6D note: futility_move_count threshold is handled by setting skip_quiet_moves after moveCount is committed
-
-            // Step 6C: Continuation history based pruning (uses cont12 only)
-            if (!critical_pawn_push && ENABLE_HISTORY_PRUNING && quiet_index >= 3 && cont12_score < -5200 * depth)
+            // Late-move pruning / move-count pruning threshold
+            // Here we skip searching the remaining quiet moves once the threshold is exceeded.
+            // Futility_move_count threshold is handled by setting skip_quiet_moves after moveCount is committed
+            // Continuation history based pruning (uses cont12 only)
+            if (!critical_pawn_push && ENABLE_HISTORY_PRUNING && !in_check && depth <= 6 && quiet_index >= 3 && cont12_score < -6500 * depth)
             {
                 continue;
             }
 
-            // Step 6B: Extended futility pruning for quiet moves at shallow depths (2–4)
+            // Extended futility pruning for quiet moves at shallow depths (2–4)
             if (!critical_pawn_push && ENABLE_EXT_FUTILITY && have_static_eval && depth >= 2 && depth <= 4 && !first_move)
             {
-                // Compute the same lmrDepth proxy used by Stockfish's pruning layer:
-                //   lmrDepth = (depth-1) - r/1024 + (cont12 + 68*main/32)/3593
+                // Compute lmrDepth for pruning layer:
                 const int new_depth = depth - 1;
                 const int delta = static_cast<int>(beta - alpha);
                 const int move_count = prospectiveMoveCount;
 
                 const int stat_score = 2 * main_hist_score + cont12_score - 3271;
-                const int r_fp = sf_lmr_adjusted_fp(improving, depth, move_count, delta, stat_score, tt_pv_node);
+                const int r_fp = lmr_adjusted_fp(improving, depth, move_count, delta, stat_score, tt_pv_node);
 
                 int lmr_depth = new_depth - (r_fp / 1024);
                 lmr_depth += move_hist_score / 3593;
                 if (lmr_depth < 0)
                     lmr_depth = 0;
 
-                // Stockfish: base = (bestMove ? 48 : 146)
-                const int base = have_best ? 64 : 162; // slightly less aggressive
+                // base = (bestMove ? 48 : 146)
+                const int base = have_best ? 64 : 162; // Kinda tuned
                 const int extra = (best_score < static_eval - 128) ? 103 : 0;
                 const Score futility_value = static_eval + static_cast<Score>(base + 116 * lmr_depth + extra);
 
-                // Stockfish gate: !inCheck && lmrDepth < 12 && futilityValue <= alpha
+                // Gate: !inCheck && lmrDepth < 12 && futilityValue <= alpha
                 if (lmr_depth < 12 && futility_value <= alpha)
                 {
-                    // Keep a non-search-derived lower bound similar to Stockfish's bestValue bump.
+                    // Keep a non-search-derived lower bound.
                     if (best_score < futility_value)
                         best_score = futility_value;
                     continue;
@@ -994,8 +988,9 @@ const bool critical_pawn_push =
         if (depth >= 10 && is_quiet)
             ++stats.quiet_searched_ge10;
         const int moveCount = ++movesSearched;
-        if (is_quiet) ++quiet_searched;
-        // Step 6D (SF Step 14): once moveCount reaches the threshold, skip remaining quiet non-checking moves at this node.
+        if (is_quiet)
+            ++quiet_searched;
+        // Once moveCount reaches the threshold, skip remaining quiet non-checking moves at this node.
         if (is_null_window && ply > 0 && have_best && board.hasNonPawnMaterial(board.sideToMove()) && !skip_quiet_moves && is_quiet && quiet_searched >= 4 && quiet_searched >= sf_futility_move_count(improving, depth) + 2)
         {
             skip_quiet_moves = true;
@@ -1038,7 +1033,7 @@ const bool critical_pawn_push =
                 ply + 1,
                 -beta,
                 -alpha,
-                 /*pv=*/pv,
+                /*pv=*/pv,
                 stats,
                 config,
                 use_quiescence,
@@ -1049,11 +1044,10 @@ const bool critical_pawn_push =
         }
         else
         {
-            // --- LMR (Stockfish 17.1 shape; fixed-point reduction table) ---
+            // --- LMR (fixed-point reduction table) ---
             int reduced_depth = depth - 1;
             bool did_reduce = false;
-            // Step 5.3 (Stockfish-aligned): apply LMR only for sufficiently deep nodes and late moves.
-            // Stockfish: if (depth >= 2 && moveCount > 1) { ... }
+            // Apply LMR only for sufficiently deep nodes and late moves.
             if (
                 depth >= 2 &&
                 moveCount > 1 &&
@@ -1061,7 +1055,7 @@ const bool critical_pawn_push =
                 !gives_chk &&
                 !in_check)
             {
-                // Stockfish computes:
+                //  Compute:
                 //   newDepth = depth - 1
                 //   delta    = beta - alpha
                 //   r        = reduction(improving, depth, moveCount, delta)
@@ -1070,31 +1064,32 @@ const bool critical_pawn_push =
                 //   history = cont12 + 68*main/32
                 //   lmrDepth += history / 3593
                 //
-                // move_count is the number of moves actually searched at this node (Stockfish-style moveCount).
+                // move_count is the number of moves actually searched at this node.
                 const int new_depth = depth - 1;
                 const int delta = static_cast<int>(beta - alpha);
                 const int move_count = moveCount;
-                // Stockfish: r -= ss->statScore * 1582 / 16384;
+                // r -= ss->statScore * 1582 / 16384;
                 // For quiet, non-check moves we approximate statScore as:
                 //   2 * mainHistory + cont1 + cont2 - 3271
-                // where cont12_score is cont1+cont2 in our implementation (pruning signal); move_hist_score includes scaled ply-3..ply-6 via MULTI_CONT_SCALE_PCT.
+                // where cont12_score is cont1+cont2 in our implementation (pruning signal); 
+                // move_hist_score includes scaled ply-3..ply-6 via MULTI_CONT_SCALE_PCT.
                 const int stat_score = 2 * main_hist_score + cont12_score - 3271;
-                const int r_fp = sf_lmr_adjusted_fp(improving, depth, move_count, delta, stat_score, tt_pv_node);
+                const int r_fp = lmr_adjusted_fp(improving, depth, move_count, delta, stat_score, tt_pv_node);
                 int lmr_depth = new_depth - (r_fp / 1024);
-                // Apply Stockfish history adjustment for quiet moves.
+                // Apply history adjustment for quiet moves.
                 // move_hist_score is computed as: (cont12 + scaled cont(3..6)) + (68 * main_history) / 32
                 lmr_depth += move_hist_score / 3593;
                 lmr_depth = std::max(1, lmr_depth);
                 reduced_depth = std::min(new_depth, lmr_depth);
                 did_reduce = (reduced_depth < new_depth);
 
-if (critical_pawn_push && reduced_depth < new_depth)
-{
-    // Passed-pawn creation/advance in queenless positions is often decisive;
-    // protect these moves from the harshest reductions.
-    reduced_depth = std::min(new_depth, reduced_depth + 1);
-    did_reduce = (reduced_depth < new_depth);
-}
+                if (critical_pawn_push && reduced_depth < new_depth)
+                {
+                    // Passed-pawn creation/advance in queenless positions is often decisive;
+                    // protect these moves from the harshest reductions.
+                    reduced_depth = std::min(new_depth, reduced_depth + 1);
+                    did_reduce = (reduced_depth < new_depth);
+                }
             }
             // 1) Reduced-depth null-window probe (or normal-depth if not reduced)
             score = -negamax(
@@ -1103,7 +1098,7 @@ if (critical_pawn_push && reduced_depth < new_depth)
                 ply + 1,
                 -alpha - ONE_CP,
                 -alpha,
-                 /*pv=*/false,
+                /*pv=*/false,
                 stats,
                 config,
                 use_quiescence,
@@ -1140,7 +1135,7 @@ if (critical_pawn_push && reduced_depth < new_depth)
                     ply + 1,
                     -beta,
                     -alpha,
-                     /*pv=*/pv,
+                    /*pv=*/pv,
                     stats,
                     config,
                     use_quiescence,
@@ -1164,7 +1159,7 @@ if (critical_pawn_push && reduced_depth < new_depth)
         {
             alpha = score;
         }
-        // Stockfish-style: collect searched-but-not-best moves for end-of-node malus updates (max 32 searched moves).
+        // Collect searched-but-not-best moves for end-of-node malus updates (max 32 searched moves).
         if (moveCount <= 32 && move != best_move_local)
         {
             const bool capture_stage = capture_stage_for_stats(board, move);
@@ -1204,7 +1199,7 @@ if (critical_pawn_push && reduced_depth < new_depth)
             break;
         }
     }
-    // --- Stockfish-style history updates (Step 4, node-exit) ---
+    // --- History updates ---
     // Apply learning once per node, based on the best move and the set of searched-but-not-best moves.
     if (!stats.stopped && have_best && best_score > alpha_window)
     {
@@ -1223,7 +1218,7 @@ if (critical_pawn_push && reduced_depth < new_depth)
         const int bf = bm.from().index();
         const int bt = bm.to().index();
         const bool best_capture_stage = capture_stage_for_stats(board, bm);
-        // Quiet-history + continuation-history updates (Stockfish update_quiet_histories analogue)
+        // Quiet-history + continuation-history updates
         if (!best_capture_stage)
         {
             if (config.use_history_heuristic)
@@ -1286,7 +1281,7 @@ if (critical_pawn_push && reduced_depth < new_depth)
                 }
             }
         }
-        // Capture-history updates (Stockfish captureHistory analogue)
+        // Capture-history updates
         if (config.use_capture_history)
         {
             if (best_capture_stage)
@@ -1307,7 +1302,7 @@ if (critical_pawn_push && reduced_depth < new_depth)
                     update_capture_history_entry(capture_history[s][ca][ct][cv], -cap_malus);
             }
         }
-        // Step 4C: Refutation penalty for early quiet parent moves (Stockfish: update_continuation_histories(ss-1, ..., -malus*987/1024)).
+        // Refutation penalty for early quiet parent moves.
         if (config.use_continuation_history && ply > 0 && move_stack[ply] != chess::Move::NO_MOVE && !prior_capture_stack[ply])
         {
             const int parent_mc = parent_move_count_stack[ply];
@@ -1380,4 +1375,3 @@ if (critical_pawn_push && reduced_depth < new_depth)
     }
     return best_score;
 }
-
