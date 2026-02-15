@@ -35,6 +35,18 @@ Score evaluate_white_pov_with_config(const Board &board,
         }
     }
 
+    // Exact draw recognizer: minor-only endgames where checkmate is impossible
+    // for either side (e.g., K+N vs K, K+B vs K, K+NN vs K, K+B vs K+B).
+    // This stabilizes static-eval pruning gates in late endgames.
+    {
+        Score draw_eval = 0;
+        if (probe_minor_only_insufficient_draw_white_pov(board, draw_eval))
+        {
+            eval_cache_table().store(k, draw_eval);
+            return draw_eval;
+        }
+    }
+
     // Single phase signal reused by tapered terms:
     // opening-heavy at low values, endgame-heavy near 256.
     // This keeps all tapered terms aligned on the same game-phase estimate.

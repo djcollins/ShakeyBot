@@ -847,6 +847,7 @@ Score negamax(chess::Board &board,
         //  - pruning gate uses cont1+cont2 (here: cont12_score)
         //  - LMR adjustment uses cont12 + 68*main/32
         int move_hist_score = 0;
+        int lmr_hist_score = 0; // local cont(1..2)+main hist for LMR/pruning
         if (is_quiet && (config.use_history_heuristic || config.use_continuation_history))
         {
             const int s = stm_index(board);
@@ -899,6 +900,9 @@ Score negamax(chess::Board &board,
             // Combined history term used for LMR adjustment .
             const int cont_score = cont12_score + contx_score;
             move_hist_score = cont_score + (64 * main_hist_score) / 32;
+            // LMR/history-adjustment should be driven primarily by the local (ply-1..2) continuation signal.
+            // Deeper continuation (ply-3..6) is useful for ordering, but is noisier and can overdrive reductions at shallow depths.
+            lmr_hist_score = cont12_score + (64 * main_hist_score) / 32;
         }
         // Shallow forward pruning gates
         //  - Move-count / LMP:            futility_move_count(improving, depth)
@@ -931,7 +935,14 @@ Score negamax(chess::Board &board,
                 const int r_fp = lmr_adjusted_fp(improving, depth, move_count, delta, stat_score, tt_pv_node);
 
                 int lmr_depth = new_depth - (r_fp / 1024);
-                lmr_depth += move_hist_score / 3593;
+                {
+                    int hist_adj = lmr_hist_score / 3593;
+                    // At the practical depths this engine reaches most often (<=8), avoid letting noisy negative history
+                    // over-reduce critical quiet defenses.
+                    if (depth <= 8)
+                        hist_adj = std::max(hist_adj, -1);
+                    lmr_depth += hist_adj;
+                }
                 if (lmr_depth < 0)
                     lmr_depth = 0;
 
@@ -1078,7 +1089,14 @@ Score negamax(chess::Board &board,
                 int lmr_depth = new_depth - (r_fp / 1024);
                 // Apply history adjustment for quiet moves.
                 // move_hist_score is computed as: (cont12 + scaled cont(3..6)) + (68 * main_history) / 32
-                lmr_depth += move_hist_score / 3593;
+                {
+                    int hist_adj = lmr_hist_score / 3593;
+                    // At the practical depths this engine reaches most often (<=8), avoid letting noisy negative history
+                    // over-reduce critical quiet defenses.
+                    if (depth <= 8)
+                        hist_adj = std::max(hist_adj, -1);
+                    lmr_depth += hist_adj;
+                }
                 lmr_depth = std::max(1, lmr_depth);
                 reduced_depth = std::min(new_depth, lmr_depth);
                 did_reduce = (reduced_depth < new_depth);

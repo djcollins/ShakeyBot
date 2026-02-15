@@ -40,6 +40,80 @@ static inline bool single_bishop_is_dark(Bitboard bishops) noexcept
     return is_dark_square_idx(s);
 }
 
+// ---------------------- Tiny exact draw recognizers (beyond KPK) ----------------------
+//
+// Purpose:
+//   Return an exact draw score (0) in trivial "minor-only" endgames where
+//   checkmate is impossible for either side.
+//
+// Rationale:
+//   Even if the search eventually finds the draw, static-eval-based pruning
+//   can be destabilized by large (incorrect) material-based eval in positions
+//   like K+N vs K, K+B vs K, K+NN vs K, or K+B vs K+B. This is extremely
+//   search-friendly: stable, monotonic, and very cheap.
+//
+// We only trigger when:
+//   - no pawns
+//   - no rooks/queens
+//   - only kings and minor pieces remain
+//   - neither side has mating material (BN, opposite-color BB, or 3+ knights).
+static inline bool probe_minor_only_insufficient_draw_white_pov(const Board &board,
+                                                                Score &eval_out_cp) noexcept
+{
+    using namespace chess;
+
+    // Early-out: any pawns or major pieces => do not trigger.
+    if (board.pieces(PieceType::PAWN, Color::WHITE) || board.pieces(PieceType::PAWN, Color::BLACK))
+        return false;
+    if (board.pieces(PieceType::ROOK, Color::WHITE) || board.pieces(PieceType::ROOK, Color::BLACK))
+        return false;
+    if (board.pieces(PieceType::QUEEN, Color::WHITE) || board.pieces(PieceType::QUEEN, Color::BLACK))
+        return false;
+
+    auto has_mating_minor_material = [&](Color c) noexcept -> bool
+    {
+        const int n = static_cast<int>(board.pieces(PieceType::KNIGHT, c).count());
+        Bitboard bbb = board.pieces(PieceType::BISHOP, c);
+        const int b = static_cast<int>(bbb.count());
+
+        // Bishop + knight mates.
+        if (b >= 1 && n >= 1)
+            return true;
+
+        // Two bishops of opposite colors mate.
+        if (b >= 2)
+        {
+            bool has_dark = false;
+            bool has_light = false;
+            Bitboard tmp = bbb;
+            while (tmp)
+            {
+                const int sq = static_cast<int>(tmp.pop());
+                if (is_dark_square_idx(sq))
+                    has_dark = true;
+                else
+                    has_light = true;
+                if (has_dark && has_light)
+                    return true;
+            }
+        }
+
+        // Three (or more) knights can checkmate (rare, but possible), so don't declare draw.
+        if (n >= 3)
+            return true;
+
+        return false;
+    };
+
+    // If neither side can possibly mate, it's an exact draw.
+    if (!has_mating_minor_material(Color::WHITE) && !has_mating_minor_material(Color::BLACK))
+    {
+        eval_out_cp = 0;
+        return true;
+    }
+    return false;
+}
+
 static inline double endgame_scale_factor_for_advantage(const Board &board,
                                                         Color strong,
                                                         Color weak) noexcept
