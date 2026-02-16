@@ -232,14 +232,25 @@ inline int lmr_adjusted_fp(bool improving, int depth, int moveCount, int delta, 
     //   r = reduction(improving, depth, moveCount, delta)
     //   r -= 32 * moveCount
     //   if (ttPv) r += 979
-    //   r -= statScore * 1582 / 16384
+    //   r -= statScore * coeff(depth) / 16384
     int r = sf_lmr_reduction_fp(improving, depth, moveCount, delta, ttPvNode);
     r -= 32 * moveCount;
     if (ttPvNode)
         r += 979;
-    r -= (statScore * 1582) / 16384;
+
+    // Depth-dependent symmetric clamp and smooth coefficient:
+    //   clamp(statScore) to +/- (256 * depth)
+    //   coeff(depth): blends from 1100 at depth 0 to 1582 at depth >= 16
+    const int d = std::max(0, depth);
+    const int ss = 256 * d;
+    const int stat_clamped = std::clamp(statScore, -ss, ss);
+    const int d16 = std::clamp(d, 0, 16);
+    const int coeff = 1100 + (1582 - 1100) * d16 / 16;
+
+    r -= (stat_clamped * coeff) / 16384;
     return r;
 }
+
 
 inline int sf_futility_move_count(bool improving, int depth) noexcept
 {
