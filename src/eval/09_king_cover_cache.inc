@@ -101,6 +101,10 @@ double pawn_storm_penalty_for_color_at_ksq(const Board &board, Color us, const S
 
     double pen = 0.0;
 
+    const std::uint64_t allowed_bits = (us == Color::WHITE)
+                                  ? (~0ULL << (k_rank * 8))
+                                  : ((k_rank >= 7) ? ~0ULL : ((1ULL << ((k_rank + 1) * 8)) - 1ULL));
+
     for (int df = -1; df <= 1; ++df)
     {
         const int f = k_file + df;
@@ -109,61 +113,29 @@ double pawn_storm_penalty_for_color_at_ksq(const Board &board, Color us, const S
 
         const Bitboard file_mask = chess::attacks::MASK_FILE[f];
 
-        // Our closest cover pawn on this file (same as in king cover).
-        int best_cover_r = (us == Color::WHITE) ? 99 : -99;
-        {
-            Bitboard file_pawns = our_pawns & file_mask;
-            Bitboard tmp = file_pawns;
-            while (tmp)
-            {
-                const int s = static_cast<int>(tmp.pop());
-                const int r = s >> 3;
-                if (us == Color::WHITE)
-                {
-                    if (r >= k_rank && r < best_cover_r)
-                        best_cover_r = r;
-                }
-                else
-                {
-                    if (r <= k_rank && r > best_cover_r)
-                        best_cover_r = r;
-                }
-            }
-        }
-
+        // Our closest cover pawn on this file (in front of / on king rank from our POV).
         int cover_idx = 0; // 0 => no cover pawn
-        if ((us == Color::WHITE && best_cover_r != 99) || (us == Color::BLACK && best_cover_r != -99))
         {
-            const int rr = (us == Color::WHITE) ? best_cover_r : (7 - best_cover_r);
-            cover_idx = std::min(6, rr);
-        }
-
-        // Their most advanced pawn on this file (toward our king), considering
-        // pawns on the king's rank or in front of it from our perspective.
-        int best_storm_r = (us == Color::WHITE) ? 99 : -99;
-        {
-            Bitboard file_pawns = their_pawns & file_mask;
-            Bitboard tmp = file_pawns;
-            while (tmp)
+            const Bitboard candidates = our_pawns & file_mask & Bitboard(allowed_bits);
+            if (candidates)
             {
-                const int s = static_cast<int>(tmp.pop());
-                const int r = s >> 3;
-
-                if (us == Color::WHITE)
-                {
-                    if (r >= k_rank && r < best_storm_r)
-                        best_storm_r = r; // closer to White home (smaller r) is more dangerous
-                }
-                else
-                {
-                    if (r <= k_rank && r > best_storm_r)
-                        best_storm_r = r; // closer to Black home (larger r) is more dangerous
-                }
+                const int best_sq = (us == Color::WHITE) ? candidates.lsb() : candidates.msb();
+                const int best_r = best_sq >> 3;
+                const int rr = (us == Color::WHITE) ? best_r : (7 - best_r);
+                cover_idx = std::min(6, rr);
             }
         }
 
-        if ((us == Color::WHITE && best_storm_r == 99) || (us == Color::BLACK && best_storm_r == -99))
-            continue; // no storm pawn on this file
+        // Their most advanced pawn on this file toward our king (in front of / on king rank from our POV).
+        int best_storm_r = -1;
+        {
+            const Bitboard candidates = their_pawns & file_mask & Bitboard(allowed_bits);
+            if (!candidates)
+                continue;
+
+            const int best_sq = (us == Color::WHITE) ? candidates.lsb() : candidates.msb();
+            best_storm_r = best_sq >> 3;
+        }
 
         const int storm_idx = (us == Color::WHITE) ? best_storm_r : (7 - best_storm_r); // 0..7
 

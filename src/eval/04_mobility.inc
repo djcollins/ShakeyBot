@@ -217,27 +217,8 @@ double mobility_term_white_minus_black(const Board &board)
 
 static inline int pawn_support_count_for_square(Bitboard our_pawns, Color us, int sq)
 {
-    const int f = sq & 7;
-    const int r = sq >> 3;
-
-    int cnt = 0;
-    if (us == Color::WHITE)
-    {
-        if (r == 0)
-            return 0;
-        if (f > 0)
-            cnt += static_cast<int>((our_pawns & Bitboard::fromSquare(sq - 9)) != 0);
-        if (f < 7)
-            cnt += static_cast<int>((our_pawns & Bitboard::fromSquare(sq - 7)) != 0);
-    }
-    else
-    {
-        if (r == 7)
-            return 0;
-        if (f > 0)
-            cnt += static_cast<int>((our_pawns & Bitboard::fromSquare(sq + 7)) != 0);
-        if (f < 7)
-            cnt += static_cast<int>((our_pawns & Bitboard::fromSquare(sq + 9)) != 0);
-    }
-    return cnt; // 0..2
+    // Squares from which OUR pawns attack `sq` are pawn attacks of the opposite color
+    // when indexed by the target square (same trick used in Board::isAttacked()).
+    const Bitboard attackers = chess::attacks::pawn(~us, Square(static_cast<std::uint8_t>(sq))) & our_pawns;
+    return attackers.empty() ? 0 : attackers.count(); // 0..2
 }

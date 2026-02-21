@@ -371,12 +371,13 @@ Score negamax(chess::Board &board,
             board.hasNonPawnMaterial(board.sideToMove()))
         {
             Score static_eval = node_corr_eval;
-            // Gate: require eval close to beta with depth-scaled margin.
-            if (static_eval >= beta &&
-                static_eval >= beta - static_cast<Score>(19 * depth) + static_cast<Score>(420)) // 420 blaze it
+            // Gate: require eval sufficiently above beta, with a margin that increases with depth
+            // (higher depth => higher confidence requirement before we prune).
+            const Score nmp_margin = static_cast<Score>(std::max(0, 4 * depth - 8));
+            if (static_eval >= beta + nmp_margin)
             {
                 const int delta = static_cast<int>(static_eval - beta);
-                int R = std::min(delta / 235, 6) + depth / 3 + 5;
+                int R = std::min(delta / 235, 6) + depth / 3 + 2;
                 // Material-sensitive adjustment: NMP is less reliable in simplified (heavy-piece-less) positions.
                 // Reduce the baseline reduction to improve zugzwang safety in minor-only / low-heavy endgames.
                 //
@@ -447,7 +448,7 @@ Score negamax(chess::Board &board,
                 if (null_score >= beta && null_score < MATE_BOUND)
                 {
                     // Return fail-soft at shallow depths or when already in verification.
-                    if (g_nmp_min_ply != 0 || depth < 16)
+                    if (g_nmp_min_ply != 0 || depth < 8)
                         return null_score;
                     int verify_depth = depth - R;
                     if (verify_depth < 1)
@@ -912,15 +913,19 @@ Score negamax(chess::Board &board,
         // Gates: null-window only, not in check, quiet non-checking moves.
         const int prospectiveMoveCount = movesSearched + 1; // MoveCount, before committing to search
 
+        bool history_prune_bad = false; // soft continuation-history pruning: late quiets with very poor cont12
+
         if (is_null_window && ply > 0 && !in_check && have_best && board.hasNonPawnMaterial(board.sideToMove()) && is_quiet && !gives_chk)
         {
             // Late-move pruning / move-count pruning threshold
             // Here we skip searching the remaining quiet moves once the threshold is exceeded.
             // Futility_move_count threshold is handled by setting skip_quiet_moves after moveCount is committed
             // Continuation history based pruning (uses cont12 only)
-            if (!critical_pawn_push && ENABLE_HISTORY_PRUNING && !in_check && depth <= 6 && quiet_index >= 3 && cont12_score < -6500 * depth)
+            if (!critical_pawn_push && ENABLE_HISTORY_PRUNING && depth <= 6 && quiet_index >= 5 && cont12_score < -6500 * depth)
             {
-                continue;
+                // Soft history pruning: instead of forward-pruning the move entirely (which is too binary for a slightly
+                // immature eval), apply an extra 1-ply reduction later via LMR.
+                history_prune_bad = true;
             }
 
             // Extended futility pruning for quiet moves at shallow depths (2–4)
@@ -949,7 +954,8 @@ Score negamax(chess::Board &board,
                 // base = (bestMove ? 48 : 146)
                 const int base = have_best ? 64 : 162; // Kinda tuned
                 const int extra = (best_score < static_eval - 128) ? 103 : 0;
-                const Score futility_value = static_eval + static_cast<Score>(base + 116 * lmr_depth + extra);
+                const Score safety = static_cast<Score>((depth <= 3) ? 40 : 0);
+                const Score futility_value = static_eval + static_cast<Score>(base + 116 * lmr_depth + extra) + safety;
 
                 // Gate: !inCheck && lmrDepth < 12 && futilityValue <= alpha
                 if (lmr_depth < 12 && futility_value <= alpha)
@@ -1098,6 +1104,8 @@ Score negamax(chess::Board &board,
                     lmr_depth += hist_adj;
                 }
                 lmr_depth = std::max(1, lmr_depth);
+                if (history_prune_bad)
+                    lmr_depth = std::max(1, lmr_depth - 1);
                 reduced_depth = std::min(new_depth, lmr_depth);
                 did_reduce = (reduced_depth < new_depth);
 
@@ -1196,6 +1204,8 @@ Score negamax(chess::Board &board,
         if (alpha >= beta)
         {
             // Killers: store quiet beta-cutoff moves per ply (2 slots), non-root.
+            // NOTE: Do NOT exclude quiet checking moves here. In this engine they can be critical defensive resources,
+            // especially for the side under pressure, and suppressing their learning tends to hurt Black results.
             if (ply > 0 && is_quiet && !is_tt_move)
             {
                 chess::Move &k1 = killer_moves[0][ply];

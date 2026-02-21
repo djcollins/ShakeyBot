@@ -73,6 +73,102 @@ static constexpr int PAWN_BLOCKED_5_EG_CP = -4;
 static constexpr int PAWN_BLOCKED_6_MG_CP = -4;
 static constexpr int PAWN_BLOCKED_6_EG_CP = 3;
 
+//
+// Candidate passed pawns (pawn-only).
+// These are "search-friendly" because they depend only on pawn structure and pawn control.
+// Values are in pawn units (1.0 = one pawn = 100cp).
+//
+static constexpr double CANDIDATE_PASSED_BONUS_MG[8] = {
+    0.0,  // rel rank 0
+    0.0,  // rel rank 1 (starting)
+    0.00, // rel rank 2 (very early; keep off)
+    0.02, // rel rank 3
+    0.04, // rel rank 4
+    0.06, // rel rank 5
+    0.08, // rel rank 6 (7th rank)
+    0.0   // rel rank 7 (promotion)
+};
+
+static constexpr double CANDIDATE_PASSED_BONUS_EG[8] = {
+    0.0,
+    0.0,
+    0.02,
+    0.04,
+    0.06,
+    0.09,
+    0.12,
+    0.0
+};
+
+// Mild multiplier when the candidate is supported by a pawn or in a phalanx.
+// Keep this conservative to avoid over-driving static eval pruning gates.
+static constexpr double CANDIDATE_SUPPORT_MULT = 1.15;
+
+static inline bool pawn_is_protected_by_pawn_from_bits(Color us, int sq, std::uint64_t our_pawns_bits) noexcept
+{
+    const int r = (sq >> 3) & 7;
+    const int f = sq & 7;
+
+    if (us == Color::WHITE)
+    {
+        if (r == 0)
+            return false;
+        if (f > 0 && (our_pawns_bits & (1ULL << (sq - 9))))
+            return true;
+        if (f < 7 && (our_pawns_bits & (1ULL << (sq - 7))))
+            return true;
+    }
+    else
+    {
+        if (r == 7)
+            return false;
+        if (f > 0 && (our_pawns_bits & (1ULL << (sq + 7))))
+            return true;
+        if (f < 7 && (our_pawns_bits & (1ULL << (sq + 9))))
+            return true;
+    }
+    return false;
+}
+
+static inline bool pawn_has_phalanx_from_bits(int sq, std::uint64_t our_pawns_bits) noexcept
+{
+    // Phalanx = adjacent pawn(s) on the same rank (left/right).
+    const int f = sq & 7;
+    std::uint64_t m = 0ULL;
+    if (f > 0)
+        m |= (1ULL << (sq - 1));
+    if (f < 7)
+        m |= (1ULL << (sq + 1));
+    return (our_pawns_bits & m) != 0ULL;
+}
+
+// Candidate passer safety gate (pawn-only):
+// Require the next 1–2 push squares to not be controlled by enemy pawns unless also controlled by our pawns.
+// Control is approximated via pawnAttacksSpan (direct pawn attacks + span).
+static inline bool candidate_push_squares_safe(Color us, int sq, int rel_r,
+                                              std::uint64_t our_pawn_span,
+                                              std::uint64_t their_pawn_span) noexcept
+{
+    const int up = (us == Color::WHITE) ? 8 : -8;
+    const int steps_to_promo = 7 - rel_r;
+    const int steps = std::min(2, steps_to_promo);
+
+    for (int i = 1; i <= steps; ++i)
+    {
+        const int t = sq + up * i;
+        if (t < 0 || t >= 64)
+            break;
+
+        const std::uint64_t bit = 1ULL << t;
+
+        // If enemy pawns control the push square and we don't, treat as not a candidate passer.
+        if ((their_pawn_span & bit) && !(our_pawn_span & bit))
+            return false;
+    }
+    return true;
+}
+
+
 static inline int relative_rank_0_7(Color us, int sq) noexcept
 {
     const int r = (sq >> 3) & 7;
@@ -375,6 +471,84 @@ public:
         apply_pawn_structure_and_span(Color::WHITE, pw, pb, ne.pawn_attacks_span_w, w_mid, w_end);
         apply_pawn_structure_and_span(Color::BLACK, pb, pw, ne.pawn_attacks_span_b, b_mid, b_end);
 
+        // 2b) Candidate passed pawns (pawn-only, cached in pawn hash).
+        //
+        // We evaluate candidates using only pawn structure + pawn control so the term is monotonic and
+        // safe for static-eval based pruning gates.
+        auto add_candidate_passers = [&](Color us,
+                                         std::uint64_t our_pawns_bits,
+                                         std::uint64_t their_pawns_bits,
+                                         std::uint64_t our_pawn_span,
+                                         std::uint64_t their_pawn_span,
+                                         double &mid,
+                                         double &end)
+        {
+            Bitboard tmp(our_pawns_bits);
+            while (tmp)
+            {
+                const int s = static_cast<int>(tmp.pop());
+                const int rel_r = relative_rank_0_7(us, s);
+
+                // Skip starting rank / promotion rank.
+                if (rel_r <= 1 || rel_r >= 7)
+                    continue;
+
+                // Pawn-only blocked gate: if the next square contains a pawn (either side), don't count as a candidate.
+                const int up = (us == Color::WHITE) ? 8 : -8;
+                const int t1 = s + up;
+                if (t1 >= 0 && t1 < 64)
+                {
+                    const std::uint64_t all_pawns = our_pawns_bits | their_pawns_bits;
+                    if (all_pawns & (1ULL << t1))
+                        continue;
+                }
+
+                // Skip real passed pawns (handled elsewhere).
+                const std::uint64_t pMask = passed_mask_for(us, s).getBits();
+                if ((their_pawns_bits & pMask) == 0ULL)
+                    continue;
+
+                // Require half-open file in front (no enemy pawn directly opposing).
+                if (their_pawns_bits & forward_file_bits(us, s))
+                    continue;
+
+                // Pawn-only safety gate on next push squares.
+                if (!candidate_push_squares_safe(us, s, rel_r, our_pawn_span, their_pawn_span))
+                    continue;
+
+                const bool protected_by_pawn = pawn_is_protected_by_pawn_from_bits(us, s, our_pawns_bits);
+                const bool phalanx = pawn_has_phalanx_from_bits(s, our_pawns_bits);
+
+                // Candidate passers that are completely unsupported tend to be "weak pawns" more often than
+                // real conversion chances. Require at least pawn support or a phalanx.
+                if (!protected_by_pawn && !phalanx)
+                    continue;
+
+                double m = CANDIDATE_PASSED_BONUS_MG[rel_r];
+                double e = CANDIDATE_PASSED_BONUS_EG[rel_r];
+                if (m == 0.0 && e == 0.0)
+                    continue;
+
+                // "Passer support": boost when protected/phalanx. Cap to avoid volatility.
+                double mult = 1.0;
+                if (protected_by_pawn)
+                    mult *= CANDIDATE_SUPPORT_MULT;
+                if (phalanx)
+                    mult *= CANDIDATE_SUPPORT_MULT;
+                if (mult > 1.30)
+                    mult = 1.30;
+
+                m *= mult;
+                e *= mult;
+
+                mid += m;
+                end += e;
+}
+        };
+
+        add_candidate_passers(Color::WHITE, pw, pb, ne.pawn_attacks_span_w, ne.pawn_attacks_span_b, w_mid, w_end);
+        add_candidate_passers(Color::BLACK, pb, pw, ne.pawn_attacks_span_b, ne.pawn_attacks_span_w, b_mid, b_end);
+
         ne.pawn_structure_mid_wmb = (w_mid - b_mid);
         ne.pawn_structure_end_wmb = (w_end - b_end);
 
@@ -467,31 +641,15 @@ double passed_pawn_term_for_color(const Board &board, Color c)
     // Step 2.6 helper: enemy rook in front (first blocker on file ahead is an enemy rook).
     auto has_enemy_rook_in_front = [&](int s, Bitboard enemy_rooks_local) noexcept -> bool
     {
-        const int r = s >> 3;
-        const int f = s & 7;
+        // Squares in front of the pawn on its file.
+        const std::uint64_t front_bits = forward_file_bits(c, s);
+        const Bitboard blockers = Bitboard(front_bits) & occ;
+        if (!blockers)
+            return false;
 
-        if (c == Color::WHITE)
-        {
-            for (int rr = r + 1; rr <= 7; ++rr)
-            {
-                const int sq = rr * 8 + f;
-                const Bitboard bb = Bitboard::fromSquare(sq);
-                if (occ & bb)
-                    return static_cast<bool>(enemy_rooks_local & bb);
-            }
-        }
-        else
-        {
-            for (int rr = r - 1; rr >= 0; --rr)
-            {
-                const int sq = rr * 8 + f;
-                const Bitboard bb = Bitboard::fromSquare(sq);
-                if (occ & bb)
-                    return static_cast<bool>(enemy_rooks_local & bb);
-            }
-        }
-
-        return false;
+        // Nearest blocker on the file in the pawn's forward direction.
+        const int first = (c == Color::WHITE) ? blockers.lsb() : blockers.msb();
+        return static_cast<bool>(enemy_rooks_local & Bitboard::fromSquare(first));
     };
 
     auto is_blocked_in_front = [&](int s) noexcept -> bool
@@ -507,34 +665,15 @@ double passed_pawn_term_for_color(const Board &board, Color c)
     // For Black pawn: rook on same file with higher rank, with no pieces in between.
     auto has_rook_behind = [&](int s, Bitboard rooks) noexcept -> bool
     {
-        const int r = s >> 3;
-        const int f = s & 7;
+        // Squares behind the pawn on its file (toward our side).
+        const std::uint64_t behind_bits = forward_file_bits(them, s);
+        const Bitboard blockers = Bitboard(behind_bits) & occ;
+        if (!blockers)
+            return false;
 
-        if (c == Color::WHITE)
-        {
-            for (int rr = r - 1; rr >= 0; --rr)
-            {
-                const int sq = rr * 8 + f;
-                const Bitboard bb = Bitboard::fromSquare(sq);
-                if (rooks & bb)
-                    return true;
-                if (occ & bb)
-                    break;
-            }
-        }
-        else
-        {
-            for (int rr = r + 1; rr <= 7; ++rr)
-            {
-                const int sq = rr * 8 + f;
-                const Bitboard bb = Bitboard::fromSquare(sq);
-                if (rooks & bb)
-                    return true;
-                if (occ & bb)
-                    break;
-            }
-        }
-        return false;
+        // Nearest blocker behind the pawn.
+        const int first = (c == Color::WHITE) ? blockers.msb() : blockers.lsb();
+        return static_cast<bool>(rooks & Bitboard::fromSquare(first));
     };
 
     const auto &pe = pawn_hash_probe(board);
@@ -548,75 +687,11 @@ double passed_pawn_term_for_color(const Board &board, Color c)
     // Step 2.4/2.5 helpers: targeted attacked-square queries (cheap; used only for passer block squares).
     auto is_sq_attacked_by = [&](Color attacker, int target_sq) noexcept -> bool
     {
-        if (target_sq < 0 || target_sq >= 64)
+        if (static_cast<unsigned>(target_sq) >= 64u)
             return false;
 
-        const std::uint64_t bit = 1ULL << target_sq;
-
-        // Pawn attacks (from pawn hash).
-        if (attacker == Color::WHITE)
-        {
-            if (pe.pawn_attacks_w & bit)
-                return true;
-        }
-        else
-        {
-            if (pe.pawn_attacks_b & bit)
-                return true;
-        }
-
-        // Knights.
-        {
-            Bitboard bb = board.pieces(PieceType::KNIGHT, attacker);
-            while (bb)
-            {
-                const Square sq(bb.pop());
-                if (chess::attacks::knight(sq).getBits() & bit)
-                    return true;
-            }
-        }
-
-        // Bishops.
-        {
-            Bitboard bb = board.pieces(PieceType::BISHOP, attacker);
-            while (bb)
-            {
-                const Square sq(bb.pop());
-                if (chess::attacks::bishop(sq, occ).getBits() & bit)
-                    return true;
-            }
-        }
-
-        // Rooks.
-        {
-            Bitboard bb = board.pieces(PieceType::ROOK, attacker);
-            while (bb)
-            {
-                const Square sq(bb.pop());
-                if (chess::attacks::rook(sq, occ).getBits() & bit)
-                    return true;
-            }
-        }
-
-        // Queens.
-        {
-            Bitboard bb = board.pieces(PieceType::QUEEN, attacker);
-            while (bb)
-            {
-                const Square sq(bb.pop());
-                if (chess::attacks::queen(sq, occ).getBits() & bit)
-                    return true;
-            }
-        }
-
-        // King (pseudo-attacks).
-        {
-            const Square ksq = board.kingSq(attacker);
-            if (ksq.is_valid() && (chess::attacks::king(ksq).getBits() & bit))
-                return true;
-        }
-
-        return false;
+        // Delegate to chess.hpp's optimized, bitboard-based attack test.
+        return board.isAttacked(Square(static_cast<std::uint8_t>(target_sq)), attacker);
     };
 
     double bonus = 0.0;
@@ -662,17 +737,7 @@ double passed_pawn_term_for_color(const Board &board, Color c)
             if (front >= 0 && front < 64 && !(occ & Bitboard::fromSquare(front)))
             {
                 // Squares in front on same file up to promotion (inclusive).
-                std::uint64_t squares_to_queen_bits = 0ULL;
-                if (c == Color::WHITE)
-                {
-                    for (int rr = r + 1; rr <= 7; ++rr)
-                        squares_to_queen_bits |= (1ULL << (rr * 8 + f));
-                }
-                else
-                {
-                    for (int rr = r - 1; rr >= 0; --rr)
-                        squares_to_queen_bits |= (1ULL << (rr * 8 + f));
-                }
+                const std::uint64_t squares_to_queen_bits = forward_file_bits(c, s);
 
                 // Passed-pawn span: forward squares on file f-1,f,f+1 (pawn-only).
                 const std::uint64_t span_bits = passed_mask_for(c, s).getBits();

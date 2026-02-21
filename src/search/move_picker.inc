@@ -4,7 +4,7 @@
 // Stages:
 //   1) TT move
 //   2) Promotions (including capture-promotions)
-//   3) Good captures (SEE >= 0 or any checking capture)
+//   3) Good captures (SEE >= threshold or any checking capture)
 //   4) Killers (quiet)
 //   5) Countermove/refutation (quiet)
 //   6) Quiets (history + continuation)
@@ -22,10 +22,21 @@ struct MovePicker
         int count = 0;
         int idx = 0;
         bool scored = false;
+        bool preset = false;
         inline void add(const chess::Move m) noexcept
         {
             if (count < static_cast<int>(moves.size()))
                 moves[count++] = m;
+        }
+        inline void add_scored(const chess::Move m, const int s) noexcept
+        {
+            if (count < static_cast<int>(moves.size()))
+            {
+                moves[count] = m;
+                scores[count] = s;
+                ++count;
+                preset = true;
+            }
         }
         inline bool pick(chess::Move &out,
                          const chess::Board &board,
@@ -36,8 +47,11 @@ struct MovePicker
                 return false;
             if (!scored)
             {
-                for (int i = 0; i < count; ++i)
-                    scores[i] = score_move(board, moves[i], nullptr, ply, config);
+                if (!preset)
+                {
+                    for (int i = 0; i < count; ++i)
+                        scores[i] = score_move(board, moves[i], nullptr, ply, config);
+                }
                 scored = true;
             }
             int best = idx;
@@ -146,10 +160,19 @@ struct MovePicker
             }
             if (is_cap)
             {
-                // Split captures into good/bad using dynamic SEE threshold:
-                //   good if SEE >= -value/18, where value = 7*VictimValue + CaptureHistory.
-                // This keeps a small class of slightly-negative captures in the "good" bucket.
+                // SEE good/bad split using EngineConfig thresholds. Checking captures are always "good".
+                const bool gives_check = (b.givesCheck(m) != CheckType::NO_CHECK);
+
+                int thr = config.good_capture_see_threshold_cp;
+                // Preserve the prior shallow behavior: if threshold==0, require SEE >= +1 at depth_remaining<=2.
+                if (thr == 0 && depth_remaining <= 2)
+                    thr = 1;
+
                 const int see = see_cp(b, m);
+                const bool good = gives_check || (see >= thr);
+
+                // Pre-score captures to avoid repeated SEE work during picking.
+                int cap_score = 0;
                 Piece victim = b.at(m.to());
                 if (victim == Piece::NONE && m.typeOf() == Move::ENPASSANT)
                 {
@@ -160,25 +183,28 @@ struct MovePicker
                         victim = b.at(Square(victim_idx));
                 }
                 Piece attacker = b.at(m.from());
-                int good_thr = 0;
                 if (victim != Piece::NONE && attacker != Piece::NONE)
                 {
                     const int v_idx = static_cast<int>(victim.type());
                     const int a_idx = static_cast<int>(attacker.type());
                     if (0 <= v_idx && v_idx < NUM_ORDER_PT && 0 <= a_idx && a_idx < NUM_ORDER_PT)
                     {
-                        int ch = 0;
+                        cap_score += 200'000 + 200 * PIECE_ORDER_VALUE[v_idx] - PIECE_ORDER_VALUE[a_idx];
                         if (config.use_capture_history)
-                            ch = (config.capture_history_ordering_mult) *
-                                 (capture_history[stm][a_idx][m.to().index()][v_idx] >> CAPTURE_HISTORY_SCORE_SHIFT_MAIN);
-                        const int value = 7 * PIECE_ORDER_VALUE[v_idx] + ch;
-                        good_thr = -value / 18;
+                            cap_score += (config.capture_history_ordering_mult) *
+                                         (capture_history[stm][a_idx][m.to().index()][v_idx] >> CAPTURE_HISTORY_SCORE_SHIFT_MAIN);
                     }
                 }
-                if (see >= good_thr)
-                    good_caps.add(m);
+                // SEE weighting (ordering only).
+                cap_score += 16 * see;
+                // Bad-capture penalty (ordering only): applied when SEE < threshold and the capture is not a check.
+                if (!gives_check && config.bad_capture_penalty_cp > 0 && see < thr)
+                    cap_score -= config.bad_capture_penalty_cp * 16;
+
+                if (good)
+                    good_caps.add_scored(m, cap_score);
                 else
-                    bad_caps.add(m);
+                    bad_caps.add_scored(m, cap_score);
             }
             else
             {

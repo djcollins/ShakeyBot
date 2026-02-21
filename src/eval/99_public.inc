@@ -65,8 +65,12 @@ Score evaluate_white_pov_with_config(const Board &board,
         score += cfg.mobility_scale * mob_term;
     }
 
+    // Shared attack maps (chess.hpp fast attack generation). Reused by space + threats.
+    AttackMaps attack_maps;
+    build_attack_maps(board, attack_maps);
+
     // 3a) Space advantage (Stockfish 12-style, midgame-only).
-    score += space_term_white_minus_black(board, mg_weight);
+    score += space_term_white_minus_black_from_maps(board, attack_maps, mg_weight);
 
     // 3b) Minor-piece outposts (pawn-supported, not pawn-chaseable).
     score += mg_weight * outpost_term_white_minus_black(board);
@@ -88,7 +92,7 @@ Score evaluate_white_pov_with_config(const Board &board,
     // 4d) Donna-style threats (attacked and undefended pieces).
     if (cfg.threat_term != 0.0)
     {
-        const double thr = threats_term_white_minus_black(board, mg_weight, eg_weight);
+        const double thr = threats_term_white_minus_black_from_maps(board, attack_maps, mg_weight, eg_weight);
         score += cfg.threat_term * thr;
     }
 

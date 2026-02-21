@@ -114,12 +114,12 @@ static inline void build_attack_maps(const Board &board, AttackMaps &m)
     const Bitboard queens_all = board.pieces(PieceType::QUEEN);
     const Bitboard occ_no_queens = occ ^ queens_all;
 
+    const auto &pe = pawn_hash_probe(board);
+
     for (Color c : {Color::WHITE, Color::BLACK})
     {
         const int ci = cidx(c);
-
         // Pawn attacks from the pawn hash (fast, consistent with other eval terms).
-        const auto &pe = pawn_hash_probe(board);
         const Bitboard pawns = board.pieces(PieceType::PAWN, c);
         const Bitboard pawn_att = (c == Color::WHITE) ? Bitboard(pe.pawn_attacks_w)
                                                       : Bitboard(pe.pawn_attacks_b);
@@ -196,16 +196,13 @@ static inline void build_attack_maps(const Board &board, AttackMaps &m)
     }
 }
 
-static inline double threats_term_for_color_sf12(const Board &board, Color us, double mg_weight, double eg_weight)
+static inline double threats_term_for_color_sf12_from_maps(const Board &board, Color us, const AttackMaps &m, double mg_weight, double eg_weight)
 {
     using namespace chess;
 
     const Color them = (us == Color::WHITE) ? Color::BLACK : Color::WHITE;
     const int ui = cidx(us);
     const int ti = cidx(them);
-
-    AttackMaps m;
-    build_attack_maps(board, m);
 
     double mg = 0.0;
     double eg = 0.0;
@@ -349,11 +346,25 @@ static inline double threats_term_for_color_sf12(const Board &board, Color us, d
     return mg * mg_weight + eg * eg_weight;
 }
 
+static inline double threats_term_for_color_sf12(const Board &board, Color us, double mg_weight, double eg_weight)
+{
+    AttackMaps m;
+    build_attack_maps(board, m);
+    return threats_term_for_color_sf12_from_maps(board, us, m, mg_weight, eg_weight);
+}
+
+static inline double threats_term_white_minus_black_from_maps(const Board &board, const AttackMaps &m, double mg_weight, double eg_weight)
+{
+    const double w = threats_term_for_color_sf12_from_maps(board, Color::WHITE, m, mg_weight, eg_weight);
+    const double b = threats_term_for_color_sf12_from_maps(board, Color::BLACK, m, mg_weight, eg_weight);
+    return w - b;
+}
+
 double threats_term_white_minus_black(const Board &board, double mg_weight, double eg_weight)
 {
-    const double w = threats_term_for_color_sf12(board, Color::WHITE, mg_weight, eg_weight);
-    const double b = threats_term_for_color_sf12(board, Color::BLACK, mg_weight, eg_weight);
-    return w - b;
+    AttackMaps m;
+    build_attack_maps(board, m);
+    return threats_term_white_minus_black_from_maps(board, m, mg_weight, eg_weight);
 }
 
 // --- Stockfish 12-style space advantage (SF12 evaluate.cpp::space()) ---
@@ -397,7 +408,7 @@ static inline int blocked_pawn_count_approx(const Board &board)
     return static_cast<int>(blocked_w.count() + blocked_b.count());
 }
 
-static inline double space_term_for_color_sf12like(const Board &board, Color us, double mg_weight)
+static inline double space_term_for_color_sf12like_from_maps(const Board &board, Color us, const AttackMaps &m, double mg_weight)
 {
     using namespace chess;
 
@@ -414,10 +425,7 @@ static inline double space_term_for_color_sf12like(const Board &board, Color us,
     const auto &pe = pawn_hash_probe(board);
     const Bitboard enemy_pawn_attacks = (us == Color::WHITE) ? Bitboard(pe.pawn_attacks_b)
                                                              : Bitboard(pe.pawn_attacks_w);
-
     // Enemy all-attacks for the "behind" double-counting gate.
-    AttackMaps m;
-    build_attack_maps(board, m);
     const Bitboard enemy_all_attacks = m.by[cidx(them)][ALL_IDX];
 
     // Central files (C-F) and near-center ranks.
@@ -462,9 +470,23 @@ static inline double space_term_for_color_sf12like(const Board &board, Color us,
     return mg_weight * mg_pawns;
 }
 
+static inline double space_term_for_color_sf12like(const Board &board, Color us, double mg_weight)
+{
+    AttackMaps m;
+    build_attack_maps(board, m);
+    return space_term_for_color_sf12like_from_maps(board, us, m, mg_weight);
+}
+
+static inline double space_term_white_minus_black_from_maps(const Board &board, const AttackMaps &m, double mg_weight)
+{
+    const double w = space_term_for_color_sf12like_from_maps(board, Color::WHITE, m, mg_weight);
+    const double b = space_term_for_color_sf12like_from_maps(board, Color::BLACK, m, mg_weight);
+    return w - b;
+}
+
 static inline double space_term_white_minus_black(const Board &board, double mg_weight)
 {
-    const double w = space_term_for_color_sf12like(board, Color::WHITE, mg_weight);
-    const double b = space_term_for_color_sf12like(board, Color::BLACK, mg_weight);
-    return w - b;
+    AttackMaps m;
+    build_attack_maps(board, m);
+    return space_term_white_minus_black_from_maps(board, m, mg_weight);
 }

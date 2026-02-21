@@ -57,44 +57,25 @@ double king_cover_penalty_for_color_slow_at_ksq(const Board &board, Color us, co
 
     double pen = 0.0;
 
+    const std::uint64_t allowed_bits = (us == Color::WHITE)
+                                  ? (~0ULL << (k_rank * 8))
+                                  : ((k_rank >= 7) ? ~0ULL : ((1ULL << ((k_rank + 1) * 8)) - 1ULL));
+
     for (int df = -1; df <= 1; ++df)
     {
         const int f = k_file + df;
         if (f < 0 || f > 7)
             continue;
 
-        Bitboard file_pawns = pawns & chess::attacks::MASK_FILE[f];
-
-        // Find our closest pawn on that file (relative to our side), considering
-        // pawns on the king's rank or in front of it.
-        int best_r = (us == Color::WHITE) ? 99 : -99;
-        if (file_pawns)
-        {
-            Bitboard tmp = file_pawns;
-            while (tmp)
-            {
-                const int s = static_cast<int>(tmp.pop());
-                const int r = s >> 3;
-
-                // "In front of / on" the king's rank from our perspective.
-                if (us == Color::WHITE)
-                {
-                    if (r >= k_rank && r < best_r)
-                        best_r = r;
-                }
-                else
-                {
-                    if (r <= k_rank && r > best_r)
-                        best_r = r;
-                }
-            }
-        }
+        const Bitboard candidates = pawns & chess::attacks::MASK_FILE[f] & Bitboard(allowed_bits);
 
         int idx = 0; // 0 => missing
-        if ((us == Color::WHITE && best_r != 99) || (us == Color::BLACK && best_r != -99))
+        if (candidates)
         {
+            const int best_sq = (us == Color::WHITE) ? candidates.lsb() : candidates.msb();
+            const int best_r = best_sq >> 3;
+
             const int rr = (us == Color::WHITE) ? best_r : (7 - best_r);
-            // Donna cover table has indices 0..6 (ranks beyond 6 are treated as equally bad).
             idx = std::min(6, rr);
         }
 

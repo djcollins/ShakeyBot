@@ -29,6 +29,9 @@ double bishop_pair_bad_bishop_term_for_color(const Board &board, Color color, do
 
     const Bitboard pawns = board.pieces(PieceType::PAWN, color);
 
+    const int pawns_dark = static_cast<int>((pawns & DARK_SQUARES).count());
+    const int pawns_light = static_cast<int>((pawns & LIGHT_SQUARES).count());
+
     // Bishop pair is already handled by the Stockfish 12 material-imbalance term
     // (via the synthetic "pair" piece), so we only keep the bad-bishop component here.
     const double pawn_pen = BAD_BISHOP_PAWN_PENALTY_MG * mg_weight + BAD_BISHOP_PAWN_PENALTY_EG * eg_weight;
@@ -43,9 +46,8 @@ double bishop_pair_bad_bishop_term_for_color(const Board &board, Color color, do
         const std::uint8_t s = bb.pop();
         const Bitboard sq_bb = Bitboard::fromSquare(static_cast<int>(s));
         const bool is_dark = static_cast<bool>(sq_bb & DARK_SQUARES);
-        const Bitboard same_color_mask = is_dark ? DARK_SQUARES : LIGHT_SQUARES;
 
-        const int same_color_pawns = static_cast<int>((pawns & same_color_mask).count());
+        const int same_color_pawns = is_dark ? pawns_dark : pawns_light;
         score -= pawn_pen * static_cast<double>(same_color_pawns);
     }
 

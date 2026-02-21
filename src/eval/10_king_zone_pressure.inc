@@ -35,30 +35,34 @@ constexpr double KOPEN_DIRECT_BISHOPQ = 0.060; // bishop/queen has a clear bisho
 constexpr double KOPEN_FILE_OPEN = 0.030;      // rook/queen attacks ring1 on an open file near king
 constexpr double KOPEN_FILE_SEMI = 0.020;      // rook/queen attacks ring1 on a semi-open file near king
 
-Bitboard king_zone_2ring(const Square ksq)
+static inline Bitboard king_zone_2ring(const Square ksq)
 {
-    Bitboard ring1 = chess::attacks::king(ksq);
-    Bitboard ring2;
-    Bitboard tmp = ring1;
-    while (tmp)
+    // Cache the 2-ring king zone for all squares: king-move ring (1) plus the
+    // king-move ring of ring1 (2), plus the king square itself.
+    static const std::array<Bitboard, 64> ZONE = []() -> std::array<Bitboard, 64>
     {
-        const std::uint8_t s = tmp.pop();
-        ring2 |= chess::attacks::king(Square(s));
-    }
-    return ring1 | ring2 | Bitboard::fromSquare(ksq.index());
+        std::array<Bitboard, 64> z{};
+        for (int i = 0; i < 64; ++i)
+        {
+            const Square s(static_cast<std::uint8_t>(i));
+            const Bitboard ring1 = chess::attacks::king(s);
+
+            Bitboard ring2;
+            Bitboard tmp = ring1;
+            while (tmp)
+            {
+                const std::uint8_t t = tmp.pop();
+                ring2 |= chess::attacks::king(Square(t));
+            }
+
+            z[i] = ring1 | ring2 | Bitboard::fromSquare(i);
+        }
+        return z;
+    }();
+
+    return ZONE[ksq.index()];
 }
 
-static inline Bitboard pawn_attacks_all(const Board &board, Color c)
-{
-    Bitboard a;
-    Bitboard pawns = board.pieces(PieceType::PAWN, c);
-    while (pawns)
-    {
-        const std::uint8_t s = pawns.pop();
-        a |= chess::attacks::pawn(c, Square(s));
-    }
-    return a;
-}
 
 static inline double king_safe_check_pressure_against_color(const Board &board, Color defender)
 {
@@ -70,7 +74,9 @@ static inline double king_safe_check_pressure_against_color(const Board &board, 
 
     // "Safe" approximation: ignore checks where the checking destination is trivially
     // recaptured by a pawn or the king.
-    const Bitboard def_pawn_att = pawn_attacks_all(board, defender);
+    const auto &pe = pawn_hash_probe(board);
+    const Bitboard def_pawn_att = (defender == Color::WHITE) ? Bitboard(pe.pawn_attacks_w)
+                                                             : Bitboard(pe.pawn_attacks_b);
     const Bitboard def_king_att = chess::attacks::king(ksq);
 
     // Squares from which a sliding piece would give check, given the current blockers.

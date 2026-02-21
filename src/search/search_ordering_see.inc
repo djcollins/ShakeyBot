@@ -81,6 +81,12 @@ static int score_move(const chess::Board &board,
                              (capture_history[stm][a_idx][move.to().index()][v_idx] >> CAPTURE_HISTORY_SCORE_SHIFT_MAIN);
             }
         }
+        // SEE weighting and bad-capture penalty (ordering only)
+        const int see = see_cp(board, move);
+        score += 16 * see;
+        const int see_thr = config.good_capture_see_threshold_cp;
+        if (config.bad_capture_penalty_cp > 0 && see < see_thr && board.givesCheck(move) == CheckType::NO_CHECK)
+            score -= config.bad_capture_penalty_cp * 16;
         return score;
     }
     // 4) Quiet moves (non-promotion, non-capture)
@@ -156,38 +162,6 @@ static void order_moves(const chess::Board &board,
         int score;
     };
 
-    // Helper: compute "good capture" SEE threshold for this capture.
-    auto good_capture_threshold_cp = [&](const Move &m) -> int
-    {
-        const int stm = stm_index(board);
-        Piece victim = board.at(m.to());
-        if (victim == Piece::NONE && m.typeOf() == Move::ENPASSANT)
-        {
-            const Color stmC = board.sideToMove();
-            const int to_idx = m.to().index();
-            const int victim_idx = (stmC == Color::WHITE ? to_idx - 8 : to_idx + 8);
-            if (0 <= victim_idx && victim_idx < 64)
-                victim = board.at(Square(victim_idx));
-        }
-        Piece attacker = board.at(m.from());
-        if (victim == Piece::NONE || attacker == Piece::NONE)
-            return 0;
-
-        const int v_idx = static_cast<int>(victim.type());
-        const int a_idx = static_cast<int>(attacker.type());
-        if (v_idx < 0 || v_idx >= NUM_ORDER_PT || a_idx < 0 || a_idx >= NUM_ORDER_PT)
-            return 0;
-
-        int ch = 0;
-        if (config.use_capture_history)
-            ch = (config.capture_history_ordering_mult) *
-                 (capture_history[stm][a_idx][m.to().index()][v_idx] >> CAPTURE_HISTORY_SCORE_SHIFT_MAIN);
-
-        // Allow a small band of slightly-negative captures in "good".
-        const int value = 7 * PIECE_ORDER_VALUE[v_idx] + ch;
-        return -value / 18;
-    };
-
     auto cmp = [](const ScoredMove &a, const ScoredMove &b)
     {
         return a.score > b.score;
@@ -221,14 +195,13 @@ static void order_moves(const chess::Board &board,
 
         if (is_cap)
         {
-            // SEE good/bad split. Checking captures are always "good".
+            // SEE good/bad split using EngineConfig thresholds. Checking captures are always "good".
             const bool gives_check = (board.givesCheck(m) != CheckType::NO_CHECK);
             bool good = gives_check;
             if (!good)
             {
-                const int thr = good_capture_threshold_cp(m);
                 const int see = see_cp(board, m);
-                good = (see >= thr);
+                good = (see >= config.good_capture_see_threshold_cp);
             }
 
             if (good)
