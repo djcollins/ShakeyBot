@@ -5,7 +5,7 @@
 
 // ---------------------- Bishop pair + bad bishop (permanent) ----------------------
 //
-// Bishop pair: handled by the Stockfish 12 material-imbalance term.
+// Bishop pair: handled by the material-imbalance term.
 // Bad bishop: penalize bishops hemmed in by own pawns on the same color complex.
 // Taper both terms by phase; the bad-bishop penalty is mainly a middlegame effect.
 //
@@ -32,7 +32,7 @@ double bishop_pair_bad_bishop_term_for_color(const Board &board, Color color, do
     const int pawns_dark = static_cast<int>((pawns & DARK_SQUARES).count());
     const int pawns_light = static_cast<int>((pawns & LIGHT_SQUARES).count());
 
-    // Bishop pair is already handled by the Stockfish 12 material-imbalance term
+    // Bishop pair is already handled by the material-imbalance term
     // (via the synthetic "pair" piece), so we only keep the bad-bishop component here.
     const double pawn_pen = BAD_BISHOP_PAWN_PENALTY_MG * mg_weight + BAD_BISHOP_PAWN_PENALTY_EG * eg_weight;
 

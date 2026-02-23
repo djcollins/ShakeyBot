@@ -7,7 +7,7 @@
 //
 // Outpost definition:
 //  - Must be supported by >=1 pawn (bonus if supported by 2 pawns)
-//  - Must NOT be pawn-chaseable (Stockfish-style pawnAttacksSpan gate)
+//  - Must NOT be pawn-chaseable
 //
 // Notes:
 //  - We intentionally do NOT try to predict multi-move pawn chases here; we’re aiming
@@ -24,7 +24,7 @@ double outpost_term_for_color(const Board &board, Color us)
 
     const Bitboard our_pawns = board.pieces(PieceType::PAWN, us);
 
-    // Use Stockfish-style pawnAttacksSpan (cached) as the gate: an outpost square
+    // Use pawnAttacksSpan (cached) as the gate: an outpost square
     // must not be controllable by an enemy pawn push/capture.
     const auto &pe = pawn_hash_probe(board);
     const std::uint64_t enemy_pawn_span_bits = (us == Color::WHITE) ? pe.pawn_attacks_span_b

@@ -1,14 +1,13 @@
-// Evaluation module: Stockfish 12 mobility
+// Evaluation module: Mobility
 //
 // NOTE: This file is included by src/evaluation.cpp (unity build for evaluation).
 // Do not compile it as a separate translation unit.
 
-// --- Stockfish 12-style mobility (mobility area + piece-type tables) ---
+// --- mobility area + piece-type tables ---
 //
-// Steps 4.1–4.3:
-//  4.1 Mobility area excludes squares occupied by own pieces and squares attacked by enemy pawns.
-//  4.2 Add a small set of Stockfish-inspired exclusions (kept lightweight and compatible with chess.hpp).
-//  4.3 Use SF12 mobility bonus tables (MG/EG centipawns) tapered by phase.
+//  Mobility area excludes squares occupied by own pieces and squares attacked by enemy pawns.
+//  Add a small set of exclusions (kept lightweight and compatible with chess.hpp).
+//  Use Mobility bonus tables (MG/EG centipawns) tapered by phase.
 //
 // NOTE: This term is expressed in pawn units (like the other terms in this file).
 
@@ -47,9 +46,8 @@ static inline double mob_bonus_from_table_pawns(const MobScore *t,
     return blended_cp / 100.0; // pawn units
 }
 
-// Stockfish 12 mobility-area helper: compute blockers to attacks on our king (i.e. pinned pieces),
-// used as part of mobilityArea[Us]. This is intentionally a lightweight, local equivalent of
-// Stockfish's pos.blockers_for_king(Us).
+// Mobility-area helper: compute blockers to attacks on our king (i.e. pinned pieces),
+// used as part of mobilityArea[Us]. This is intentionally lightweight.
 static inline Bitboard blockers_for_king_sf12(const Board &board, Color us)
 {
     using namespace chess;
@@ -134,7 +132,7 @@ double mobility_term_for_color(const Board &board, Color color)
 
     const Bitboard occ = board.occ();
 
-    // 4.4 Slider x-ray nuance (SF12-style): for mobility counting only, let bishops see through all queens,
+    // 4.4 Slider x-ray nuance : for mobility counting only, let bishops see through all queens,
     // and let rooks see through all queens and our own rooks. This values latent line activity without
     // changing legality or move generation elsewhere.
     const Bitboard queens_all = board.pieces(PieceType::QUEEN);
@@ -146,8 +144,8 @@ double mobility_term_for_color(const Board &board, Color color)
     const Bitboard enemy_pawn_attacks = (color == Color::WHITE) ? Bitboard(pe.pawn_attacks_b)
                                                                 : Bitboard(pe.pawn_attacks_w);
 
-    // 4.1 Mobility area (Stockfish 12 semantics).
-    // SF12 counts mobility as attacks into a filtered area (not as legal moves), so we intentionally do
+    // 4.1 Mobility area .
+    // Counts mobility as attacks into a filtered area (not as legal moves), so we intentionally do
     // NOT exclude all of our pieces here. We exclude:
     //   - our blocked/low pawns (b)
     //   - our king/queen squares

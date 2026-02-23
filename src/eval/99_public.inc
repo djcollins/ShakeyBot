@@ -7,7 +7,7 @@
 
 Score evaluate_material(const Board &board)
 {
-    // Net from White's point of view, including Stockfish-style material imbalance.
+    // Net from White's point of view, including material imbalance.
     const double base = material_white_pov_pawns(board);
     const double imb = material_probe(board).imbalance_pawns_wmb;
     return pawns_to_cp(base + imb);
@@ -69,7 +69,7 @@ Score evaluate_white_pov_with_config(const Board &board,
     AttackMaps attack_maps;
     build_attack_maps(board, attack_maps);
 
-    // 3a) Space advantage (Stockfish 12-style, midgame-only).
+    // 3a) Space advantage (midgame-only).
     score += space_term_white_minus_black_from_maps(board, attack_maps, mg_weight);
 
     // 3b) Minor-piece outposts (pawn-supported, not pawn-chaseable).

@@ -75,7 +75,7 @@ static inline int pawn_island_count(Bitboard pawns) noexcept
 double pawn_structure_term_white_minus_black(const Board &board, double midgame_weight, double endgame_weight)
 {
     const auto &pe = pawn_hash_probe(board);
-    // We store pawn-structure in Stockfish MG/EG convention; blend happens here.
+    // We store pawn-structure in MG/EG convention; blend happens here.
     return midgame_weight * pe.pawn_structure_mid_wmb + endgame_weight * pe.pawn_structure_end_wmb;
 }
 

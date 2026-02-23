@@ -6,7 +6,7 @@
 // Index = static_cast<int>(PieceType):
 // 0 = PAWN, 1 = KNIGHT, 2 = BISHOP, 3 = ROOK, 4 = QUEEN, 5 = KING, 6 = NONE
 
-// Phase weights per piece type, aligned with Python/JS Stockfish-like values.
+// Phase weights per piece type.
 constexpr int STOCK_PHASE_WEIGHTS[NUM_PT] = {
     0,    // pawn
     781,  // knight

@@ -1,5 +1,5 @@
 // -------------------------------------------------------------------------
-// MovePicker-style staged ordering (Stockfish-inspired)
+// MovePicker-style staged ordering
 //
 // Stages:
 //   1) TT move

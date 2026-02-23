@@ -690,7 +690,7 @@ Score negamax(chess::Board &board,
         have_static_eval = true;
     }
     // Track quiet moves that were actually searched at this node, so on a later cutoff we can
-    // apply a small negative update to the other tried quiet moves (Stockfish-style).
+    // apply a small negative update to the other tried quiet moves.
     chess::Move quiet_tried[MAX_QUIET_TRIED];
     int quiet_tried_count = 0;
     constexpr int MAX_CAPTURE_TRIED = 32;
@@ -849,6 +849,8 @@ Score negamax(chess::Board &board,
         //  - LMR adjustment uses cont12 + 68*main/32
         int move_hist_score = 0;
         int lmr_hist_score = 0; // local cont(1..2)+main hist for LMR/pruning
+        int main_hist_scaled = 0;
+        int cont12_scaled = 0;
         if (is_quiet && (config.use_history_heuristic || config.use_continuation_history))
         {
             const int s = stm_index(board);
@@ -898,12 +900,21 @@ Score negamax(chess::Board &board,
                     }
                 }
             }
-            // Combined history term used for LMR adjustment .
+            // Combined history term used for LMR adjustment.
             const int cont_score = cont12_score + contx_score;
-            move_hist_score = cont_score + (64 * main_hist_score) / 32;
+
+            // Apply configurable weighting so continuation doesn't over/under-drive ordering and LMR.
+            // Defaults preserve prior behavior:
+            //   history_ordering_mult=2 => main part = 2*main_hist_score
+            //   continuation_ordering_mult=2 => cont part = 1*cont_score
+            main_hist_scaled = config.history_ordering_mult * main_hist_score;
+            cont12_scaled = static_cast<int>((static_cast<std::int64_t>(config.continuation_ordering_mult) * cont12_score) / 2);
+            const int cont_scaled = static_cast<int>((static_cast<std::int64_t>(config.continuation_ordering_mult) * cont_score) / 2);
+
+            move_hist_score = cont_scaled + main_hist_scaled;
             // LMR/history-adjustment should be driven primarily by the local (ply-1..2) continuation signal.
-            // Deeper continuation (ply-3..6) is useful for ordering, but is noisier and can overdrive reductions at shallow depths.
-            lmr_hist_score = cont12_score + (64 * main_hist_score) / 32;
+            // Deeper continuation (ply-3..ply-6) is useful for ordering, but is noisier and can overdrive reductions at shallow depths.
+            lmr_hist_score = cont12_scaled + main_hist_scaled;
         }
         // Shallow forward pruning gates
         //  - Move-count / LMP:            futility_move_count(improving, depth)
@@ -921,7 +932,7 @@ Score negamax(chess::Board &board,
             // Here we skip searching the remaining quiet moves once the threshold is exceeded.
             // Futility_move_count threshold is handled by setting skip_quiet_moves after moveCount is committed
             // Continuation history based pruning (uses cont12 only)
-            if (!critical_pawn_push && ENABLE_HISTORY_PRUNING && depth <= 6 && quiet_index >= 5 && cont12_score < -6500 * depth)
+            if (!critical_pawn_push && ENABLE_HISTORY_PRUNING && depth <= 6 && quiet_index >= 5 && cont12_scaled < -6500 * depth)
             {
                 // Soft history pruning: instead of forward-pruning the move entirely (which is too binary for a slightly
                 // immature eval), apply an extra 1-ply reduction later via LMR.
@@ -936,7 +947,7 @@ Score negamax(chess::Board &board,
                 const int delta = static_cast<int>(beta - alpha);
                 const int move_count = prospectiveMoveCount;
 
-                const int stat_score = 2 * main_hist_score + cont12_score - 3271;
+                const int stat_score = main_hist_scaled + cont12_scaled - 3271;
                 const int r_fp = lmr_adjusted_fp(improving, depth, move_count, delta, stat_score, tt_pv_node);
 
                 int lmr_depth = new_depth - (r_fp / 1024);
@@ -1090,7 +1101,7 @@ Score negamax(chess::Board &board,
                 //   2 * mainHistory + cont1 + cont2 - 3271
                 // where cont12_score is cont1+cont2 in our implementation (pruning signal); 
                 // move_hist_score includes scaled ply-3..ply-6 via MULTI_CONT_SCALE_PCT.
-                const int stat_score = 2 * main_hist_score + cont12_score - 3271;
+                const int stat_score = main_hist_scaled + cont12_scaled - 3271;
                 const int r_fp = lmr_adjusted_fp(improving, depth, move_count, delta, stat_score, tt_pv_node);
                 int lmr_depth = new_depth - (r_fp / 1024);
                 // Apply history adjustment for quiet moves.

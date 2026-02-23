@@ -48,13 +48,13 @@ static inline std::uint64_t pawn_key(std::uint64_t pw, std::uint64_t pb) noexcep
     return splitmix64(pw ^ splitmix64(pb + 0xD1B54A32D192ED03ULL));
 }
 
-// --- Stockfish-style pawn feature helpers (pawn-only) ---
+// --- Pawn feature helpers (pawn-only) ---
 
-// Connected pawn bonus by relative rank (0..7) from Stockfish 12 (pawns.cpp).
+// Connected pawn bonus by relative rank (0..7) .
 // Index 0 and 7 are unused for legal pawns and left as 0.
 static constexpr int CONNECTED_BONUS_BY_REL_RANK[8] = {0, 7, 8, 11, 24, 45, 85, 0};
 
-// Stockfish 12 pawn-structure penalties/bonuses (centipawns), used inside the pawn hash.
+// Pawn-structure penalties/bonuses (centipawns), used inside the pawn hash.
 // These are pawn-only terms (no piece/king dependency), matching SF12 pawns.cpp.
 static constexpr int PAWN_BACKWARD_MG_CP = 8;
 static constexpr int PAWN_BACKWARD_EG_CP = 27;
@@ -211,7 +211,7 @@ static inline std::uint64_t adjacent_files_bits(int sq) noexcept
     return m;
 }
 
-// Stockfish's pawn_attack_span(): squares on adjacent files in front of the pawn.
+// Squares on adjacent files in front of the pawn.
 static inline std::uint64_t pawn_attack_span_bits(Color us, int sq) noexcept
 {
     return forward_ranks_bits(us, sq) & adjacent_files_bits(sq);
@@ -326,12 +326,12 @@ public:
             ne.pawn_attacks_w = w_att.getBits();
             ne.pawn_attacks_b = b_att.getBits();
 
-            // Stockfish-style pawnAttacksSpan starts as direct pawn attacks and is expanded per-pawn below.
+            // Starts as direct pawn attacks and is expanded per-pawn below.
             ne.pawn_attacks_span_w = ne.pawn_attacks_w;
             ne.pawn_attacks_span_b = ne.pawn_attacks_b;
         }
 
-        // 2) Pawn structure (Stockfish 12 pawns.cpp), split into MG/EG (Stockfish convention).
+        // 2) Pawn structure .
         //    This is pawn-only and safe to cache in the pawn hash.
         double w_mid = 0.0, w_end = 0.0;
         double b_mid = 0.0, b_end = 0.0;
@@ -353,7 +353,7 @@ public:
                 const std::uint64_t phalanx = neighbours & chess::attacks::MASK_RANK[abs_r].getBits();
                 const std::uint64_t opposed = their_pawns_bits & forward_file_bits(us, s);
 
-                // support = adjacent-file pawns one rank behind the pawn (Stockfish rank_bb(s - Up)).
+                // support = adjacent-file pawns one rank behind the pawn .
                 std::uint64_t support = 0ULL;
                 const int s_down = s - up;
                 if (s_down >= 0 && s_down < 64)
@@ -387,12 +387,12 @@ public:
                     pawn_attacks_span_bits |= pawn_attack_span_bits(us, s);
                 }
 
-                // --- Stockfish 12 pawn-structure scoring ---
+                // --- Pawn-structure scoring ---
                 if (support || phalanx)
                 {
                     const int v = CONNECTED_BONUS_BY_REL_RANK[rel_r] * (2 + (phalanx != 0ULL) - (opposed != 0ULL)) + 21 * popcount64(support);
 
-                    // Stockfish: make_score(v, v * (rel_r - 2) / 4). Values are centipawns.
+                    //Values are centipawns.
                     mid += static_cast<double>(v) / 100.0;
                     end += (static_cast<double>(v) * (static_cast<double>(rel_r) - 2.0) / 4.0) / 100.0;
                 }

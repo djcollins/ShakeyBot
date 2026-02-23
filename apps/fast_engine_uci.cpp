@@ -299,8 +299,8 @@ static void handle_setoption(const std::string &line,
         if (!value.empty())
         {
             int v = std::stoi(value);
-            v = std::max(0, std::min(8, v));
-            config.history_ordering_mult = v;
+            v = std::max(0, std::min(300, v));
+            config.history_ordering_mult = static_cast<double>(v) / 100.0;
         }
     }
     else if (name == "ContinuationBonusMult")
@@ -308,8 +308,8 @@ static void handle_setoption(const std::string &line,
         if (!value.empty())
         {
             int v = std::stoi(value);
-            v = std::max(0, std::min(8, v));
-            config.continuation_ordering_mult = v;
+            v = std::max(0, std::min(300, v));
+            config.continuation_ordering_mult = static_cast<double>(v) / 100.0;
         }
     }
     else if (name == "CaptureHistoryMult")
@@ -941,8 +941,8 @@ int main()
             io.send("option name KillerBonus1 type spin default " + std::to_string(config.killer_bonus_1) + " min 0 max 150000");
             io.send("option name KillerBonus2 type spin default " + std::to_string(config.killer_bonus_2) + " min 0 max 150000");
             io.send("option name CounterMoveBonus type spin default " + std::to_string(config.counter_move_bonus) + " min 0 max 30000");
-            io.send("option name HistoryBonusMult type spin default " + std::to_string(config.history_ordering_mult) + " min 0 max 3");
-            io.send("option name ContinuationBonusMult type spin default " + std::to_string(config.continuation_ordering_mult) + " min 0 max 3");
+            io.send("option name HistoryBonusMult type spin default " + std::to_string(static_cast<int>(std::llround(config.history_ordering_mult * 100.0))) + " min 0 max 300");
+            io.send("option name ContinuationBonusMult type spin default " + std::to_string(static_cast<int>(std::llround(config.continuation_ordering_mult * 100.0))) + " min 0 max 300");
             io.send("option name CaptureHistoryMult type spin default " + std::to_string(config.capture_history_ordering_mult) + " min 0 max 3");
             io.send("option name UseNullMovePruning type check default " + std::string(as_bool(config.use_null_move_pruning)));
             io.send("option name UseMoveCountPruning type check default " + std::string(as_bool(config.use_move_count_pruning)));

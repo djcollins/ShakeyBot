@@ -97,10 +97,10 @@ static int score_move(const chess::Board &board,
         {
             const int f = move.from().index();
             const int t = move.to().index();
-            score += 2 * history_heur[stm][f][t];
+            score += config.history_ordering_mult * history_heur[stm][f][t];
         }
         // Piece-aware continuation history (Raw sum; dist==5 downweighted; dist>=3 scaled by MULTI_CONT_SCALE_PCT)
-        if (config.use_continuation_history)
+        if (config.use_continuation_history && config.continuation_ordering_mult)
         {
             const int cur_pt = pt_index(board.at(move.from()));
             const int cur_to = move.to().index();
@@ -126,7 +126,7 @@ static int score_move(const chess::Board &board,
                         v /= 3;
                     if (dist >= 3 && MULTI_CONT_SCALE_PCT != 100)
                         v = static_cast<int>((static_cast<std::int64_t>(v) * MULTI_CONT_SCALE_PCT) / 100);
-                    score += v;
+                    score += static_cast<int>((static_cast<std::int64_t>(config.continuation_ordering_mult) * v) / 2);
                 }
             }
         }

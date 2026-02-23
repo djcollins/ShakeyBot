@@ -1,20 +1,20 @@
-// Evaluation module: Stockfish 12 material imbalance + material cache
+// Evaluation module:material imbalance + material cache
 //
 // NOTE: This file is included by src/evaluation.cpp (unity build for evaluation).
 // Do not compile it as a separate translation unit.
 
-// ---------------------- Material imbalance + material flags (Stockfish 12) ----------------------
+// ---------------------- Material imbalance + material flags ----------------------
 //
 // High-ROI evaluation component:
-//   - Stockfish 12 quadratic material-imbalance polynomial (Tord Romstad).
+//   - Quadratic material-imbalance polynomial (Tord Romstad).
 //   - Cached by material key (piece counts only) to avoid recomputation.
 //   - Exposes material-derived flags used to gate noisy terms (Donna-style usage),
 //     e.g. king safety is disabled when the attacker lacks sufficient material.
 //
 // Notes on units:
-//   Stockfish computes:
+//   Computes:
 //     value = (imbalance<WHITE>(pc) - imbalance<BLACK>(pc)) / 16
-//   in Stockfish Value units where PawnValueEg == 208.
+//   in units where PawnValueEg == 208.
 //   We convert to this engine's pawn units (1.0 = one pawn) by dividing by 208.0.
 
 constexpr int SF12_PAWN_VALUE_EG = 208;
@@ -30,25 +30,25 @@ enum Sf12MatPt : int
     SF12_PT_NB = 6
 };
 
-// Stockfish 12 material-imbalance parameters (src/material.cpp)
+// Material-imbalance parameters (borrowed and altered)
 constexpr int SF12_QuadraticOurs[SF12_PT_NB][SF12_PT_NB] = {
     // pair, pawn, knight, bishop, rook, queen
-    {1438, 0, 0, 0, 0, 0},          // Pair
-    {40, 38, 0, 0, 0, 0},           // Pawn
-    {32, 255, -62, 0, 0, 0},        // Knight
-    {0, 104, 4, 0, 0, 0},           // Bishop
-    {-26, -2, 47, 105, -208, 0},    // Rook
-    {-189, 24, 117, 133, -134, -6}, // Queen
+    {143, 0, 0, 0, 0, 0},          // Pair
+    {42, 37, 0, 0, 0, 0},           // Pawn
+    {31, 256, -63, 0, 0, 0},        // Knight
+    {0, 103, 4, 0, 0, 0},           // Bishop
+    {-25, -2, 48, 104, -207, 0},    // Rook
+    {-188, 25, 114, 132, -135, -6}, // Queen
 };
 
 constexpr int SF12_QuadraticTheirs[SF12_PT_NB][SF12_PT_NB] = {
     // pair, pawn, knight, bishop, rook, queen
     {0, 0, 0, 0, 0, 0},          // Pair
-    {36, 0, 0, 0, 0, 0},         // Pawn
-    {9, 63, 0, 0, 0, 0},         // Knight
-    {59, 65, 42, 0, 0, 0},       // Bishop
-    {46, 39, 24, -24, 0, 0},     // Rook
-    {97, 100, -42, 137, 268, 0}, // Queen
+    {37, 0, 0, 0, 0, 0},         // Pawn
+    {9, 64, 0, 0, 0, 0},         // Knight
+    {58, 63, 42, 0, 0, 0},       // Bishop
+    {45, 38, 24, -24, 0, 0},     // Rook
+    {96, 100, -42, 137, 268, 0}, // Queen
 };
 
 static inline int sf12_imbalance_for_side(const int pc[2][SF12_PT_NB], int us) noexcept
@@ -190,7 +190,7 @@ private:
         const int imbW = sf12_imbalance_for_side(pc, 0);
         const int imbB = sf12_imbalance_for_side(pc, 1);
 
-        const int sf_value = (imbW - imbB) / 16; // Stockfish Value units (PawnValueEg==208)
+        const int sf_value = (imbW - imbB) / 16; // (PawnValueEg==208)
         m.imbalance_pawns_wmb = static_cast<double>(sf_value) / static_cast<double>(SF12_PAWN_VALUE_EG);
         return m;
     }

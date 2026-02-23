@@ -76,9 +76,6 @@ namespace fast_engine
         std::atomic<bool> *external_stop = nullptr;
     };
 
-    // Root move persistence (Stockfish/Donna-style): keep root moves across iterations
-    // and reorder by the previous iteration's score.
-    //
     // If Engine passes a non-null root move list into find_best_move(), the root search
     // will iterate moves in that provided order and will update RootMove::last_score
     // with the score obtained at the searched depth.

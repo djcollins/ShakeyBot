@@ -284,7 +284,7 @@ namespace fast_engine
             return std::chrono::steady_clock::now() >= control->soft_deadline;
         };
 
-        // Stockfish-inspired time-management helpers:
+        // Time-management helpers:
         //  - Track root PV[0] stability across iterations (last_pv0_change_depth)
         //  - Track root best-move wobble within an iteration (stats.best_move_changes)
         const int base_soft_ms = (control && control->time_enabled)
@@ -548,7 +548,7 @@ namespace fast_engine
             if (control && control->time_enabled && last_stats.has_best_move)
                 update_soft_deadline(depth_to_search, last_stats, iter_best_move);
 
-            // Stockfish-style per-iteration callback (info lines in the UCI layer).
+            // Per-iteration callback (info lines in the UCI layer).
             if (on_iter)
             {
                 const auto now = std::chrono::steady_clock::now();

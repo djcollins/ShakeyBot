@@ -25,8 +25,10 @@ namespace fast_engine
         // This is applied in move-order scoring (not evaluation), scaled internally by 16 to match the SEE weighting.
         int bad_capture_penalty_cp = 0; // 0, 100, 150, 200
 
-        int history_ordering_mult = 2;         // multiplier for main history heuristic contribution 0, 1, 2
-        int continuation_ordering_mult = 2;    // multiplier for continuation history contribution 0, 1, 2
+        // History/continuation ordering multipliers (dimensionless). UCI options expose these as integers 0..300,
+        // interpreted as (value / 100.0). Example: 150 -> 1.5x.
+        double history_ordering_mult = 0.96;      // default 2.0x (UCI default 200)
+        double continuation_ordering_mult = 1.52; // default 2.0x (UCI default 200)
         int capture_history_ordering_mult = 1; // base multiplier for capture history (score_move uses 2x this and shifts >>1 (net ~1x range)) 1, 2, 3
 
         // Move ordering bonuses (internal ordering score units; not centipawns).

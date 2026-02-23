@@ -3,7 +3,7 @@
 // NOTE: This file is included by src/evaluation.cpp (unity build for evaluation).
 // Do not compile it as a separate translation unit.
 
-// ---------------------- Endgame scaling (Stockfish-style) ----------------------
+// ---------------------- Endgame scaling ----------------------
 //
 // Purpose:
 //   Reduce over-optimistic evaluation in drawish endgames by scaling the score

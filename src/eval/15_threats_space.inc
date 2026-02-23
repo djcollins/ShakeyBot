@@ -3,13 +3,7 @@
 // NOTE: This file is included by src/evaluation.cpp (unity build for evaluation).
 // Do not compile it as a separate translation unit.
 
-// ----------------- Donna-style threats term -----------------
-//
-// Idea (inspired by Donna): reward "hanging" enemy pieces (attacked and not defended),
-// with piece-type dependent weights. This is a simple, fast approximation that tends
-// to improve practical play by preferring moves that create concrete problems.
-
-// ---------------------- Threats (Stockfish 12-style) ----------------------
+// ---------------------- Threats ----------------------
 //
 // Replaces the older Donna-style "attacked & undefended" heuristic with a
 // closer match to SF12's threats model:
@@ -88,7 +82,7 @@ static inline Bitboard mobility_area_for_color(const Board &board, Color us)
     const Bitboard enemy_pawn_attacks = (us == Color::WHITE) ? Bitboard(pe.pawn_attacks_b)
                                                              : Bitboard(pe.pawn_attacks_w);
 
-    // Stockfish 12 mobility area semantics (shared by mobility/threats):
+    // Mobility area semantics (shared by mobility/threats):
     // We count attacks into a filtered area (not legal moves), so do NOT exclude all own pieces.
     // Exclusions: blocked/low pawns, our king/queen, king-blockers (pinned pieces), and enemy pawn attacks.
     const Bitboard our_pawns = board.pieces(PieceType::PAWN, us);
@@ -367,7 +361,7 @@ double threats_term_white_minus_black(const Board &board, double mg_weight, doub
     return threats_term_white_minus_black_from_maps(board, m, mg_weight, eg_weight);
 }
 
-// --- Stockfish 12-style space advantage (SF12 evaluate.cpp::space()) ---
+// --- Space advantage (SF12 evaluate.cpp::space()) ---
 //
 // Midgame-only space bonus that rewards safe central squares, and (more) safe squares
 // behind friendly pawns. The term is intentionally disabled once enough major/minor

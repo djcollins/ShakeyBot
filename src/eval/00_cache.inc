@@ -15,12 +15,12 @@ struct PawnHashEntry
     std::uint64_t pawn_attacks_w = 0ULL;
     std::uint64_t pawn_attacks_b = 0ULL;
 
-    // Squares potentially attacked by pawns as they advance (Stockfish-style pawnAttacksSpan).
+    // Squares potentially attacked by pawns as they advance.
     std::uint64_t pawn_attacks_span_w = 0ULL;
     std::uint64_t pawn_attacks_span_b = 0ULL;
 
     // Pawn structure score from White's POV, split into midgame/endgame components (in pawn units).
-    // Midgame/Endgame here follow Stockfish's convention; the final blend is done in evaluate().
+    // Midgame/Endgame, the final blend is done in evaluate().
     double pawn_structure_mid_wmb = 0.0;
     double pawn_structure_end_wmb = 0.0;
 
