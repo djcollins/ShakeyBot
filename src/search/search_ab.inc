@@ -1245,10 +1245,10 @@ Score negamax(chess::Board &board,
         const bool best_is_tt = (have_tt_best && best_move_local == tt_best_move);
         const int bonus = std::min(141 * depth - 89, 1613) + (best_is_tt ? 311 : 0);
         const int malus = std::min(695 * depth - 215, 2808) - 31 * (movesSearched - 1);
-        const int main_bonus = (bonus * 1129) / 1024;
-        const int main_malus = (malus * 1246) / 1024;
-        const int cont_bonus = (main_bonus * 1004) / 1024;
-        const int cont_malus = (main_malus * 1004) / 1024;
+        const int main_bonus_base = (bonus * 1129) / 1024;
+        const int main_malus_base = (malus * 1246) / 1024;
+        const int cont_bonus_base = (main_bonus_base * 1004) / 1024;
+        const int cont_malus_base = (main_malus_base * 1004) / 1024;
         const int cap_bonus = (bonus * 1187) / 1024;
         const int cap_malus = (malus * 1377) / 1024;
         static constexpr std::array<int, 7> W = {0, 1103, 659, 323, 533, 121, 474};
@@ -1257,6 +1257,16 @@ Score negamax(chess::Board &board,
         const int bf = bm.from().index();
         const int bt = bm.to().index();
         const bool best_capture_stage = capture_stage_for_stats(board, bm);
+
+        // History update tuning: scale quiet-history learning only when a QUIET move causes a beta cutoff.
+        // These knobs affect learning deltas, not the ordering multipliers used in score_move().
+        const bool quiet_beta_cutoff = (!best_capture_stage && best_score >= beta_window);
+        const double bonus_mult = quiet_beta_cutoff ? config.history_cutoff_bonus_mult : 1.0;
+        const double neg_mult = quiet_beta_cutoff ? config.history_neg_update_mult : 1.0;
+        const int main_bonus = static_cast<int>(std::lround(static_cast<double>(main_bonus_base) * bonus_mult));
+        const int cont_bonus = static_cast<int>(std::lround(static_cast<double>(cont_bonus_base) * bonus_mult));
+        const int main_malus = static_cast<int>(std::lround(static_cast<double>(main_malus_base) * neg_mult));
+        const int cont_malus = static_cast<int>(std::lround(static_cast<double>(cont_malus_base) * neg_mult));
         // Quiet-history + continuation-history updates
         if (!best_capture_stage)
         {

@@ -31,6 +31,12 @@ namespace fast_engine
         double continuation_ordering_mult = 1.52; // default 2.0x (UCI default 200)
         int capture_history_ordering_mult = 1; // base multiplier for capture history (score_move uses 2x this and shifts >>1 (net ~1x range)) 1, 2, 3
 
+        // History update scheme tuning knobs (dimensionless). Exposed as UCI ints 0..300, interpreted as (value / 100.0).
+        // These affect LEARNING (the deltas written to history tables), not the scoring multipliers above.
+        // Applied only on quiet beta cutoffs (fail-high) to avoid destabilizing exact-node learning.
+        double history_cutoff_bonus_mult = 2.00; // default 1.0x (UCI default 100)
+        double history_neg_update_mult = 1.25;   // default 1.0x (UCI default 100)
+
         // Move ordering bonuses (internal ordering score units; not centipawns).
         int killer_bonus_1 = 90000;     // bonus for primary killer move (quiet only) 60000, 90000, 120000
         int killer_bonus_2 = 80000;     // bonus for secondary killer move (quiet only) 50000, 80000, 100000
