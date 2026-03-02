@@ -332,6 +332,68 @@ static void handle_setoption(const std::string &line,
             config.history_neg_update_mult = static_cast<double>(v) / 100.0;
         }
     }
+    
+    else if (name == "ContCutoffBonus")
+    {
+        // 0..300 -> 0.00x .. 3.00x
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.cont_cutoff_bonus_mult = static_cast<double>(v) / 100.0;
+        }
+    }
+    else if (name == "ContNegUpdate")
+    {
+        // 0..300 -> 0.00x .. 3.00x
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.cont_neg_update_mult = static_cast<double>(v) / 100.0;
+        }
+    }
+else if (name == "LMRHistoryRelief")
+    {
+        // 0..300 -> 0.00x .. 3.00x
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.lmr_history_relief_mult = static_cast<double>(v) / 100.0;
+        }
+    }
+    else if (name == "LMRHistoryPenalty")
+    {
+        // 0..300 -> 0.00x .. 3.00x
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.lmr_history_penalty_mult = static_cast<double>(v) / 100.0;
+        }
+    }
+    else if (name == "LMRBase")
+    {
+        // 0..300 -> 0.00x .. 3.00x
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.lmr_base_mult = static_cast<double>(v) / 100.0;
+        }
+    }
+    else if (name == "LMRSlope")
+    {
+        // 0..300 -> 0.00x .. 3.00x
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.lmr_slope_mult = static_cast<double>(v) / 100.0;
+        }
+    }
+
     else if (name == "CaptureHistoryMult")
     {
         if (!value.empty())
@@ -965,6 +1027,12 @@ int main()
             io.send("option name ContinuationBonusMult type spin default " + std::to_string(static_cast<int>(std::llround(config.continuation_ordering_mult * 100.0))) + " min 0 max 300");
             io.send("option name HistoryCutoffBonus type spin default " + std::to_string(static_cast<int>(std::llround(config.history_cutoff_bonus_mult * 100.0))) + " min 0 max 300");
             io.send("option name HistoryNegUpdate type spin default " + std::to_string(static_cast<int>(std::llround(config.history_neg_update_mult * 100.0))) + " min 0 max 300");
+            io.send("option name ContCutoffBonus type spin default " + std::to_string(static_cast<int>(std::llround(config.cont_cutoff_bonus_mult * 100.0))) + " min 0 max 300");
+            io.send("option name ContNegUpdate type spin default " + std::to_string(static_cast<int>(std::llround(config.cont_neg_update_mult * 100.0))) + " min 0 max 300");
+            io.send("option name LMRHistoryRelief type spin default " + std::to_string(static_cast<int>(std::llround(config.lmr_history_relief_mult * 100.0))) + " min 0 max 300");
+            io.send("option name LMRHistoryPenalty type spin default " + std::to_string(static_cast<int>(std::llround(config.lmr_history_penalty_mult * 100.0))) + " min 0 max 300");
+            io.send("option name LMRBase type spin default " + std::to_string(static_cast<int>(std::llround(config.lmr_base_mult * 100.0))) + " min 0 max 300");
+            io.send("option name LMRSlope type spin default " + std::to_string(static_cast<int>(std::llround(config.lmr_slope_mult * 100.0))) + " min 0 max 300");
             io.send("option name CaptureHistoryMult type spin default " + std::to_string(config.capture_history_ordering_mult) + " min 0 max 3");
             io.send("option name UseNullMovePruning type check default " + std::string(as_bool(config.use_null_move_pruning)));
             io.send("option name UseMoveCountPruning type check default " + std::string(as_bool(config.use_move_count_pruning)));

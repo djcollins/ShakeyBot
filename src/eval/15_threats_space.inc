@@ -353,14 +353,14 @@ static inline double threats_term_white_minus_black_from_maps(const Board &board
     const double b = threats_term_for_color_sf12_from_maps(board, Color::BLACK, m, mg_weight, eg_weight);
     return w - b;
 }
-
+/* DEPRECATED: This was an intermediate step for testing the maps-based version, but we can just compute white and black separately in the main term function.
 double threats_term_white_minus_black(const Board &board, double mg_weight, double eg_weight)
 {
     AttackMaps m;
     build_attack_maps(board, m);
     return threats_term_white_minus_black_from_maps(board, m, mg_weight, eg_weight);
 }
-
+*/
 // --- Space advantage (SF12 evaluate.cpp::space()) ---
 //
 // Midgame-only space bonus that rewards safe central squares, and (more) safe squares

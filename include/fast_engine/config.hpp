@@ -34,8 +34,27 @@ namespace fast_engine
         // History update scheme tuning knobs (dimensionless). Exposed as UCI ints 0..300, interpreted as (value / 100.0).
         // These affect LEARNING (the deltas written to history tables), not the scoring multipliers above.
         // Applied only on quiet beta cutoffs (fail-high) to avoid destabilizing exact-node learning.
-        double history_cutoff_bonus_mult = 2.00; // default 1.0x (UCI default 100)
-        double history_neg_update_mult = 1.25;   // default 1.0x (UCI default 100)
+        double history_cutoff_bonus_mult = 2.00; // default 2.0x (UCI default 200)
+        double history_neg_update_mult = 1.25;   // default 1.25x (UCI default 125)
+        // Continuation-history update scheme tuning knobs (dimensionless). Exposed as UCI ints 0..300, interpreted as (value / 100.0).
+        // Defaults are tied to the main-history knobs above, so behavior is unchanged unless tuned.
+        double cont_cutoff_bonus_mult = 2.25; // default 2.0x (UCI default 200)
+        double cont_neg_update_mult = 0.5;   // default 1.25x (UCI default 125)
+
+
+        // LMR history tuning knobs (dimensionless). Exposed as UCI ints 0..300, interpreted as (value / 100.0).
+        // These affect only the history-based LMR adjustment:
+        //   - Relief: positive history (trusted quiets) -> smaller reduction / deeper reduced search
+        //   - Penalty: negative history (untrusted quiets) -> larger reduction
+        double lmr_history_relief_mult = 2.25;  // default 1.0x (UCI default 100)
+        double lmr_history_penalty_mult = 2.25; // default 1.0x (UCI default 100)
+
+        // LMR base/slope tuning knobs (dimensionless). Exposed as UCI ints 0..300, interpreted as (value / 100.0).
+        // These affect the *baseline* LMR reduction curve (intercept and move-index slope) for late quiet moves.
+        //  - LMRBase scales an additive fixed-point offset to the reduction (higher => more reduction).
+        //  - LMRSlope scales the per-move-index reduction term (higher => reductions grow faster for later moves).
+        double lmr_base_mult = 2.25;  // default 1.0x (UCI default 100)
+        double lmr_slope_mult = 0.5; // default 1.0x (UCI default 100)
 
         // Move ordering bonuses (internal ordering score units; not centipawns).
         int killer_bonus_1 = 90000;     // bonus for primary killer move (quiet only) 60000, 90000, 120000

@@ -650,6 +650,20 @@ Score negamax(chess::Board &board,
         static_eval_stack[ply] = node_static_eval;
     const bool improving = (ply >= 2 && ply <= MAX_PLY && node_static_eval >= static_eval_stack[ply - 2]);
 
+    // History-aware LMR adjustment for quiet moves. Positive history provides "relief" (smaller reductions),
+    // while negative history applies an extra penalty (larger reductions). Keep the shallow-depth safety clamp
+    // on negative adjustments because this engine often operates at practical depths <= 8.
+    const auto lmr_history_adjust = [&](int hist_score_raw) -> int
+    {
+        if (hist_score_raw == 0)
+            return 0;
+        const double mult = (hist_score_raw > 0) ? config.lmr_history_relief_mult : config.lmr_history_penalty_mult;
+        int hist_adj = static_cast<int>((mult * static_cast<double>(hist_score_raw)) / 3593.0);
+        if (depth <= 8)
+            hist_adj = std::max(hist_adj, -1);
+        return hist_adj;
+    };
+
     // Child-node futility pruning (reverse-futility) ---
     // If the corrected static eval is already comfortably above beta, we can return early
     // at shallow non-PV nodes. This is a fail-high pruning gate.
@@ -948,15 +962,11 @@ Score negamax(chess::Board &board,
                 const int move_count = prospectiveMoveCount;
 
                 const int stat_score = main_hist_scaled + cont12_scaled - 3271;
-                const int r_fp = lmr_adjusted_fp(improving, depth, move_count, delta, stat_score, tt_pv_node);
+                const int r_fp = lmr_adjusted_fp(improving, depth, move_count, delta, stat_score, tt_pv_node, config.lmr_base_mult, config.lmr_slope_mult);
 
                 int lmr_depth = new_depth - (r_fp / 1024);
                 {
-                    int hist_adj = lmr_hist_score / 3593;
-                    // At the practical depths this engine reaches most often (<=8), avoid letting noisy negative history
-                    // over-reduce critical quiet defenses.
-                    if (depth <= 8)
-                        hist_adj = std::max(hist_adj, -1);
+                    const int hist_adj = lmr_history_adjust(lmr_hist_score);
                     lmr_depth += hist_adj;
                 }
                 if (lmr_depth < 0)
@@ -1102,16 +1112,12 @@ Score negamax(chess::Board &board,
                 // where cont12_score is cont1+cont2 in our implementation (pruning signal); 
                 // move_hist_score includes scaled ply-3..ply-6 via MULTI_CONT_SCALE_PCT.
                 const int stat_score = main_hist_scaled + cont12_scaled - 3271;
-                const int r_fp = lmr_adjusted_fp(improving, depth, move_count, delta, stat_score, tt_pv_node);
+                const int r_fp = lmr_adjusted_fp(improving, depth, move_count, delta, stat_score, tt_pv_node, config.lmr_base_mult, config.lmr_slope_mult);
                 int lmr_depth = new_depth - (r_fp / 1024);
                 // Apply history adjustment for quiet moves.
                 // move_hist_score is computed as: (cont12 + scaled cont(3..6)) + (68 * main_history) / 32
                 {
-                    int hist_adj = lmr_hist_score / 3593;
-                    // At the practical depths this engine reaches most often (<=8), avoid letting noisy negative history
-                    // over-reduce critical quiet defenses.
-                    if (depth <= 8)
-                        hist_adj = std::max(hist_adj, -1);
+                    const int hist_adj = lmr_history_adjust(lmr_hist_score);
                     lmr_depth += hist_adj;
                 }
                 lmr_depth = std::max(1, lmr_depth);
@@ -1261,12 +1267,18 @@ Score negamax(chess::Board &board,
         // History update tuning: scale quiet-history learning only when a QUIET move causes a beta cutoff.
         // These knobs affect learning deltas, not the ordering multipliers used in score_move().
         const bool quiet_beta_cutoff = (!best_capture_stage && best_score >= beta_window);
-        const double bonus_mult = quiet_beta_cutoff ? config.history_cutoff_bonus_mult : 1.0;
-        const double neg_mult = quiet_beta_cutoff ? config.history_neg_update_mult : 1.0;
-        const int main_bonus = static_cast<int>(std::lround(static_cast<double>(main_bonus_base) * bonus_mult));
-        const int cont_bonus = static_cast<int>(std::lround(static_cast<double>(cont_bonus_base) * bonus_mult));
-        const int main_malus = static_cast<int>(std::lround(static_cast<double>(main_malus_base) * neg_mult));
-        const int cont_malus = static_cast<int>(std::lround(static_cast<double>(cont_malus_base) * neg_mult));
+
+// History update tuning: scale learning only when a QUIET move causes a beta cutoff.
+// These knobs affect learning deltas, not the ordering multipliers used in score_move().
+const double main_bonus_mult = quiet_beta_cutoff ? config.history_cutoff_bonus_mult : 1.0;
+const double main_neg_mult   = quiet_beta_cutoff ? config.history_neg_update_mult   : 1.0;
+const double cont_bonus_mult = quiet_beta_cutoff ? config.cont_cutoff_bonus_mult    : 1.0;
+const double cont_neg_mult   = quiet_beta_cutoff ? config.cont_neg_update_mult      : 1.0;
+
+const int main_bonus = static_cast<int>(std::lround(static_cast<double>(main_bonus_base) * main_bonus_mult));
+const int cont_bonus = static_cast<int>(std::lround(static_cast<double>(cont_bonus_base) * cont_bonus_mult));
+const int main_malus = static_cast<int>(std::lround(static_cast<double>(main_malus_base) * main_neg_mult));
+const int cont_malus = static_cast<int>(std::lround(static_cast<double>(cont_malus_base) * cont_neg_mult));
         // Quiet-history + continuation-history updates
         if (!best_capture_stage)
         {

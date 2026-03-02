@@ -226,7 +226,7 @@ inline int sf_lmr_reduction_fp(bool improving, int depth, int moveCount, int del
     return r;
 }
 
-inline int lmr_adjusted_fp(bool improving, int depth, int moveCount, int delta, int statScore, bool ttPvNode)
+inline int lmr_adjusted_fp(bool improving, int depth, int moveCount, int delta, int statScore, bool ttPvNode, double baseMult, double slopeMult)
 {
     // Fixed-point LMR:
     //   r = reduction(improving, depth, moveCount, delta)
@@ -234,7 +234,15 @@ inline int lmr_adjusted_fp(bool improving, int depth, int moveCount, int delta, 
     //   if (ttPv) r += 979
     //   r -= statScore * coeff(depth) / 16384
     int r = sf_lmr_reduction_fp(improving, depth, moveCount, delta, ttPvNode);
-    r -= 32 * moveCount;
+    // Tunable move-index slope: scale the per-move reduction term.
+    // Base coefficient is 32 (fixed-point), which corresponds to ~0.031 ply per move after /1024.
+    const int slope_coeff = std::clamp(static_cast<int>(std::llround(32.0 * slopeMult)), 0, 256);
+    r -= slope_coeff * moveCount;
+
+    // Tunable intercept: apply an additive fixed-point offset to the reduction.
+    // We scale by 0.5 ply per 1.0x delta so 0..3 maps to [-0.5,+1.0] plies.
+    const int base_delta_fp = static_cast<int>(std::llround((baseMult - 1.0) * 512.0));
+    r += base_delta_fp;
     if (ttPvNode)
         r += 979;
 
