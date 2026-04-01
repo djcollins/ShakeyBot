@@ -37,32 +37,40 @@ Score evaluate_white_pov_with_config(const Board &board,
 
     // Single phase signal reused by tapered terms:
     // opening-heavy at low values, endgame-heavy near 256.
-    // This keeps all tapered terms aligned on the same game-phase estimate.
     const int phase_0_256 = compute_phase_0_256(board);
     // phase_0_256 is an endgame-progress metric: 0 = opening, 256 = king-only endgame.
     const double eg_weight = static_cast<double>(phase_0_256) / 256.0;
     const double mg_weight = 1.0 - eg_weight;
+
+    // IMPORTANT: all *term* functions here are expressed in pawn units.
+    // Keep the internal accumulator in pawn units and convert only once at the end.
     double score = 0.0;
 
     const MaterialEntry &mat = material_probe(board);
 
-    // 1) Material is always included.
-    // IMPORTANT: all *term* functions in this file are expressed in pawn units.
-    // Keep the internal accumulator in pawn units and convert only once at the end.
-    score += material_white_pov_pawns(board) * 1.3 + mat.imbalance_pawns_wmb;
+    // 1) Material + imbalance.
+    score += cfg.eval.material * material_white_pov_pawns(board);
+    score += cfg.eval.imbalance * mat.imbalance_pawns_wmb;
 
-    // 2) King crowding (simple, no phase weighting).
-    if (cfg.king_crowding_scale != 0.0)
+    // 2) King crowding.
+    if (cfg.eval.king_crowding != 0.0)
     {
         const double kc_term = king_crowding_term_white_minus_black(board);
-        score += cfg.king_crowding_scale * kc_term;
+        score += cfg.eval.king_crowding * kc_term;
     }
 
     // 3) Mobility.
-    if (cfg.mobility_scale != 0.0)
+    if (cfg.eval.mobility != 0.0)
     {
         const double mob_term = mobility_term_white_minus_black(board);
-        score += cfg.mobility_scale * mob_term;
+        score += cfg.eval.mobility * mob_term;
+    }
+
+    // 3c) X-ray pins (cheap tactical heuristic).
+    if (cfg.eval.xray_pins != 0.0)
+    {
+        const double xr = xray_pins_term_white_minus_black(board);
+        score += cfg.eval.xray_pins * xr;
     }
 
     // Shared attack maps (chess.hpp fast attack generation). Reused by space + threats.
@@ -70,67 +78,64 @@ Score evaluate_white_pov_with_config(const Board &board,
     build_attack_maps(board, attack_maps);
 
     // 3a) Space advantage (midgame-only).
-    score += space_term_white_minus_black_from_maps(board, attack_maps, mg_weight);
+    score += cfg.eval.space * space_term_white_minus_black_from_maps(board, attack_maps, mg_weight);
 
     // 3b) Minor-piece outposts (pawn-supported, not pawn-chaseable).
-    score += mg_weight * outpost_term_white_minus_black(board);
+    score += cfg.eval.outposts * mg_weight * outpost_term_white_minus_black(board);
 
-    // 4a) Pawn structure (simple).
-    const double midgame_weight = mg_weight;
-    const double endgame_weight = eg_weight;
-    score += pawn_structure_term_white_minus_black(board, midgame_weight, endgame_weight);
+    // 4a) Pawn structure.
+    score += cfg.eval.pawn_structure * pawn_structure_term_white_minus_black(board, mg_weight, eg_weight);
 
     // 4b) Passed pawns (endgame-weighted).
-    score += eg_weight * passed_pawn_term_white_minus_black(board) * 1.5;
+    score += cfg.eval.passed_pawns * eg_weight * passed_pawn_term_white_minus_black(board);
 
     // 4c) Rook activity (open/semi-open files + rook on 7th).
-    if (ENABLE_ROOK_FILE_ACTIVITY)
+    if (ENABLE_ROOK_FILE_ACTIVITY && cfg.eval.rook_activity != 0.0)
     {
-        score += rook_activity_term_white_minus_black(board, mg_weight, eg_weight);
+        score += cfg.eval.rook_activity * rook_activity_term_white_minus_black(board, mg_weight, eg_weight);
     }
 
     // 4d) Donna-style threats (attacked and undefended pieces).
-    if (cfg.threat_term != 0.0)
+    if (cfg.eval.threats != 0.0)
     {
         const double thr = threats_term_white_minus_black_from_maps(board, attack_maps, mg_weight, eg_weight);
-        score += cfg.threat_term * thr;
+        score += cfg.eval.threats * thr;
     }
 
-    // 5) King safety (always-on).
-    //
-    // King-zone pressure remains untapered. The cover/storm component should be weighted toward the middlegame.
-    score += king_safety_term_white_minus_black(board, mg_weight, mat);
+    // 5) King safety.
+    if (cfg.eval.king_safety != 0.0)
+    {
+        // King-zone pressure remains untapered. The cover/storm component should be weighted toward the middlegame.
+        score += cfg.eval.king_safety * king_safety_term_white_minus_black(board, mg_weight, mat);
+    }
 
-    // 6) Bishop pair + bad bishop (simple).
-    score += bishop_pair_bad_bishop_term_white_minus_black(board, mg_weight, eg_weight);
+    // 6) Bishop pair + bad bishop.
+    if (cfg.eval.bishop_pair_bad_bishop != 0.0)
+    {
+        score += cfg.eval.bishop_pair_bad_bishop * bishop_pair_bad_bishop_term_white_minus_black(board, mg_weight, eg_weight);
+    }
 
     // 7) Piece-square tables.
-    if (cfg.pst_scale != 0.0)
+    if (cfg.eval.pst != 0.0)
     {
         double pst_term = 0.0;
-        if (cfg.use_stock_pst)
-        {
+        if (cfg.eval.use_stock_pst)
             pst_term = piece_square_term_white_minus_black_stock(board);
-        }
         else
-        {
             pst_term = piece_square_term_white_minus_black_custom(board, phase_0_256);
-        }
-        score += cfg.pst_scale * pst_term;
+
+        score += cfg.eval.pst * pst_term;
     }
 
     // 8) Endgame scaling.
-    //
-    // Apply only once we are past the middlegame to avoid disturbing tactical play.
-    // Scale factor is in [0..1]; final multiplier = mg_weight + eg_weight * scale.
-    if (phase_0_256 >= 128)
+    if (cfg.enable_endgame_scaling && phase_0_256 >= 128)
     {
+        // Scale factor is in [0..1]; final multiplier = mg_weight + eg_weight * scale.
         const double sf = endgame_scale_factor_white_pov(board, score);
         const double factor = mg_weight + eg_weight * sf;
         score *= factor;
     }
 
-    // Convert once at the boundary so sub-terms can stay in pawn units.
     const Score result = pawns_to_cp(score);
     eval_cache_table().store(k, result);
     return result;
@@ -143,12 +148,11 @@ Score evaluate_for_side_to_move_with_config(const Board &board,
     // Add a small tempo bonus in the middlegame only to avoid endgame zugzwang artifacts.
     const int phase_0_256 = compute_phase_0_256(board);
 
-    constexpr Score TEMPO_BONUS_CP = 6; // centipawns
 
     const Score white_pov = evaluate_white_pov_with_config(board, cfg);
     const Score stm = (board.sideToMove() == Color::WHITE) ? white_pov : -white_pov;
 
-    const Score tempo = static_cast<Score>((static_cast<std::int64_t>(TEMPO_BONUS_CP) * (256 - phase_0_256) + 128) / 256);
+    const Score tempo = static_cast<Score>((static_cast<std::int64_t>(cfg.tempo_bonus_cp) * (256 - phase_0_256) + 128) / 256);
 
     return stm + tempo;
 }
@@ -183,10 +187,9 @@ Score debug_eval_space_white_minus_black(const Board &board)
     return pawns_to_cp(space_term_white_minus_black(board, mg_weight));
 }
 
-Score debug_eval_xray_white_minus_black(const Board & /*board*/)
+Score debug_eval_xray_white_minus_black(const Board &board)
 {
-    // Pinned-piece / xray evaluation has been removed for simplicity.
-    return 0;
+    return pawns_to_cp(xray_pins_term_white_minus_black(board));
 }
 
 Score debug_eval_pst_stock_white_minus_black(const Board &board)

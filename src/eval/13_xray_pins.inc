@@ -99,3 +99,64 @@ Bitboard pinned_pieces_by_slider_type(const Board &board, Square king_sq, Bitboa
 
     return pinned;
 }
+
+// Return value is from White's POV in pawn units:
+//   + => Black has more pinned material / tactical liabilities
+//   - => White has more pinned material / tactical liabilities
+static inline double xray_pins_term_white_minus_black(const Board &board)
+{
+    const Bitboard occ_w = board.us(Color::WHITE);
+    const Bitboard occ_b = board.us(Color::BLACK);
+
+    const Square wk = board.kingSq(Color::WHITE);
+    const Square bk = board.kingSq(Color::BLACK);
+
+    // Pinned pieces to each king by enemy rooks/bishops/queens.
+    const Bitboard pinned_w_rook = pinned_pieces_by_slider_type<PieceType::ROOK>(board, wk, occ_b, occ_w);
+    const Bitboard pinned_w_bish = pinned_pieces_by_slider_type<PieceType::BISHOP>(board, wk, occ_b, occ_w);
+    const Bitboard pinned_b_rook = pinned_pieces_by_slider_type<PieceType::ROOK>(board, bk, occ_w, occ_b);
+    const Bitboard pinned_b_bish = pinned_pieces_by_slider_type<PieceType::BISHOP>(board, bk, occ_w, occ_b);
+
+    const Bitboard pinned_w = pinned_w_rook | pinned_w_bish;
+    const Bitboard pinned_b = pinned_b_rook | pinned_b_bish;
+
+    auto pin_weight = [&](PieceType pt) -> double
+    {
+        // Conservative weights (pawn units). These are intentionally small
+        // because pins are highly position-dependent and already partly
+        // reflected in mobility / king-safety. The overall influence is
+        // controlled by cfg.eval.xray_pins.
+        switch (static_cast<int>(pt))
+        {
+        case static_cast<int>(PieceType::PAWN):
+            return 0.02; // 2cp
+        case static_cast<int>(PieceType::KNIGHT):
+        case static_cast<int>(PieceType::BISHOP):
+            return 0.10; // 10cp
+        case static_cast<int>(PieceType::ROOK):
+            return 0.14; // 14cp
+        case static_cast<int>(PieceType::QUEEN):
+            return 0.16; // 16cp
+        default:
+            return 0.0;
+        }
+    };
+
+    auto sum_pins = [&](Bitboard bb) -> double
+    {
+        double s = 0.0;
+        while (bb)
+        {
+            const int sq = static_cast<int>(bb.pop());
+            const PieceType pt = board.at(Square(static_cast<std::uint8_t>(sq))).type();
+            s += pin_weight(pt);
+        }
+        return s;
+    };
+
+    const double w_pen = sum_pins(pinned_w);
+    const double b_pen = sum_pins(pinned_b);
+
+    // White POV: positive if Black is more pinned.
+    return b_pen - w_pen;
+}

@@ -72,11 +72,30 @@ static inline std::uint64_t eval_config_signature(const EngineConfig &cfg)
         mix(u);
     };
 
-    mix_double(cfg.king_crowding_scale);
-    mix_double(cfg.mobility_scale);
-    mix_double(cfg.pst_scale);
-    mix_double(cfg.threat_term);
-    mix(cfg.use_stock_pst ? 0xF0F0F0F0F0F0F0F0ULL : 0x0ULL);
+    // Coarse eval scales.
+    mix_double(cfg.eval.material);
+    mix_double(cfg.eval.imbalance);
+
+    mix_double(cfg.eval.king_crowding);
+    mix_double(cfg.eval.mobility);
+    mix_double(cfg.eval.xray_pins);
+
+    mix_double(cfg.eval.space);
+    mix_double(cfg.eval.outposts);
+
+    mix_double(cfg.eval.pawn_structure);
+    mix_double(cfg.eval.passed_pawns);
+
+    mix_double(cfg.eval.rook_activity);
+    mix_double(cfg.eval.bishop_pair_bad_bishop);
+
+    mix_double(cfg.eval.threats);
+    mix_double(cfg.eval.king_safety);
+
+    mix_double(cfg.eval.pst);
+    mix(cfg.eval.use_stock_pst ? 0xF0F0F0F0F0F0F0F0ULL : 0x0ULL);
+
+    mix(cfg.enable_endgame_scaling ? 0x123456789ABCDEF0ULL : 0x0ULL);
 
     // Final avalanche.
     h ^= h >> 33;
@@ -86,6 +105,7 @@ static inline std::uint64_t eval_config_signature(const EngineConfig &cfg)
     h ^= h >> 33;
     return h;
 }
+
 
 static inline std::uint64_t eval_cache_key(const Board &board, const EngineConfig &cfg)
 {

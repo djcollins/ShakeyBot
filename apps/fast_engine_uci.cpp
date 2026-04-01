@@ -163,37 +163,152 @@ static void handle_setoption(const std::string &line,
         if (!value.empty())
             config.search_depth = std::stoi(value);
     }
+    else if (name == "MaterialScale")
+    {
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.material = static_cast<double>(v) / 100.0;
+        }
+    }
+    else if (name == "ImbalanceScale")
+    {
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.imbalance = static_cast<double>(v) / 100.0;
+        }
+    }
     else if (name == "KingCrowdingScale")
     {
         if (!value.empty())
-            config.king_crowding_scale = static_cast<double>(std::stoi(value)) / 100.0;
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.king_crowding = static_cast<double>(v) / 100.0;
+        }
     }
     else if (name == "MobilityScale")
     {
         if (!value.empty())
-            config.mobility_scale = static_cast<double>(std::stoi(value)) / 100.0;
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.mobility = static_cast<double>(v) / 100.0;
+        }
     }
     else if (name == "XRayScale")
     {
         if (!value.empty())
-            config.xray_scale = static_cast<double>(std::stoi(value)) / 100.0;
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.xray_pins = static_cast<double>(v) / 100.0;
+        }
+    }
+    else if (name == "SpaceScale")
+    {
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.space = static_cast<double>(v) / 100.0;
+        }
+    }
+    else if (name == "OutpostScale")
+    {
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.outposts = static_cast<double>(v) / 100.0;
+        }
+    }
+    else if (name == "PawnStructureScale")
+    {
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.pawn_structure = static_cast<double>(v) / 100.0;
+        }
+    }
+    else if (name == "PassedPawnScale")
+    {
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.passed_pawns = static_cast<double>(v) / 100.0;
+        }
+    }
+    else if (name == "RookActivityScale")
+    {
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.rook_activity = static_cast<double>(v) / 100.0;
+        }
+    }
+    else if (name == "KingSafetyScale")
+    {
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.king_safety = static_cast<double>(v) / 100.0;
+        }
+    }
+    else if (name == "BishopPairScale")
+    {
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.bishop_pair_bad_bishop = static_cast<double>(v) / 100.0;
+        }
     }
     else if (name == "PSTScale")
     {
         if (!value.empty())
-            config.pst_scale = static_cast<double>(std::stoi(value)) / 100.0;
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.pst = static_cast<double>(v) / 100.0;
+        }
     }
     else if (name == "ThreatTerm")
     {
         if (!value.empty())
-            config.threat_term = static_cast<double>(std::stoi(value)) / 100.0;
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.threats = static_cast<double>(v) / 100.0;
+        }
     }
     else if (name == "UseStockPST")
     {
         if (!value.empty())
         {
             const std::string v = to_lower(value);
-            config.use_stock_pst = (v == "true" || v == "1");
+            config.eval.use_stock_pst = (v == "true" || v == "1");
+        }
+    }
+    else if (name == "EnableEndgameScaling")
+    {
+        if (!value.empty())
+            config.enable_endgame_scaling = parse_bool_option(value);
+    }
+    else if (name == "TempoBonus")
+    {
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(50, v));
+            config.tempo_bonus_cp = v;
         }
     }
     else if (name == "UseQuiescence")
@@ -1000,14 +1115,33 @@ int main()
             io.send("option name MoveOverhead type spin default " + std::to_string(config.move_overhead_ms) + " min 0 max 2000");
             io.send("option name Ponder type check default " + std::string(as_bool(config.ponder)));
 
-            io.send("option name KingCrowdingScale type spin default " + std::to_string(to_cp(config.king_crowding_scale)) + " min 0 max 100");
-            io.send("option name MobilityScale type spin default " + std::to_string(to_cp(config.mobility_scale)) + " min 0 max 100");
-            io.send("option name XRayScale type spin default " + std::to_string(to_cp(config.xray_scale)) + " min 0 max 30");
-            io.send("option name PSTScale type spin default " + std::to_string(to_cp(config.pst_scale)) + " min 0 max 150");
-            io.send("option name Hash type spin default " + std::to_string(std::lround(config.hash_mb)) + " min 1 max 4096");
-            // io.send("option name UseStockPST type check default " + std::string(as_bool(config.use_stock_pst)));
-            io.send("option name ThreatTerm type spin default " + std::to_string(to_cp(config.threat_term)) + " min 0 max 300");
+            // ---- Evaluation scales (linear multipliers; values are shown as x100 for convenience) ----
+            io.send("option name MaterialScale type spin default " + std::to_string(to_cp(config.eval.material)) + " min 0 max 300");
+            io.send("option name ImbalanceScale type spin default " + std::to_string(to_cp(config.eval.imbalance)) + " min 0 max 300");
 
+            io.send("option name KingCrowdingScale type spin default " + std::to_string(to_cp(config.eval.king_crowding)) + " min 0 max 300");
+            io.send("option name MobilityScale type spin default " + std::to_string(to_cp(config.eval.mobility)) + " min 0 max 300");
+            io.send("option name XRayScale type spin default " + std::to_string(to_cp(config.eval.xray_pins)) + " min 0 max 300");
+
+            io.send("option name SpaceScale type spin default " + std::to_string(to_cp(config.eval.space)) + " min 0 max 300");
+            io.send("option name OutpostScale type spin default " + std::to_string(to_cp(config.eval.outposts)) + " min 0 max 300");
+
+            io.send("option name PawnStructureScale type spin default " + std::to_string(to_cp(config.eval.pawn_structure)) + " min 0 max 300");
+            io.send("option name PassedPawnScale type spin default " + std::to_string(to_cp(config.eval.passed_pawns)) + " min 0 max 300");
+
+            io.send("option name RookActivityScale type spin default " + std::to_string(to_cp(config.eval.rook_activity)) + " min 0 max 300");
+            io.send("option name KingSafetyScale type spin default " + std::to_string(to_cp(config.eval.king_safety)) + " min 0 max 300");
+            io.send("option name BishopPairScale type spin default " + std::to_string(to_cp(config.eval.bishop_pair_bad_bishop)) + " min 0 max 300");
+
+            io.send("option name PSTScale type spin default " + std::to_string(to_cp(config.eval.pst)) + " min 0 max 300");
+            io.send("option name UseStockPST type check default " + std::string(as_bool(config.eval.use_stock_pst)));
+
+            io.send("option name ThreatTerm type spin default " + std::to_string(to_cp(config.eval.threats)) + " min 0 max 300");
+
+            io.send("option name TempoBonus type spin default " + std::to_string(config.tempo_bonus_cp) + " min 0 max 50");
+            io.send("option name EnableEndgameScaling type check default " + std::string(as_bool(config.enable_endgame_scaling)));
+
+            io.send("option name Hash type spin default " + std::to_string(std::lround(config.hash_mb)) + " min 1 max 4096");
             io.send("option name UseQuiescence type check default " + std::string(as_bool(config.use_quiescence)));
             io.send("option name UseRazoring type check default " + std::string(as_bool(config.use_razoring)));
             io.send("option name RazorMarginD2 type spin default " + std::to_string(config.razor_margin_d2) + " min 0 max 1000");
