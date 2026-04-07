@@ -121,6 +121,8 @@ Score qsearch(chess::Board &board,
     {
         chess::Move move;
         int score;
+        int see = 0;
+        bool has_see = false;
     };
     std::array<ScoredMove, chess::constants::MAX_MOVES> scored;
     int count = 0;
@@ -130,6 +132,8 @@ Score qsearch(chess::Board &board,
         int s = 0;
         const bool is_promo = (m.typeOf() == chess::Move::PROMOTION);
         const bool is_cap = board.isCapture(m) || (m.typeOf() == chess::Move::ENPASSANT);
+        int move_see = 0;
+        bool have_see = false;
         if (is_promo)
         {
             const chess::PieceType promo = m.promotionType();
@@ -159,12 +163,14 @@ Score qsearch(chess::Board &board,
                 s += 100'000 + (50 * v - a);
                 // Refine capture ordering with SEE + capture history. This helps reduce q-node blowups
                 // in tactically dense positions without changing correctness.
-                int see = see_cp(board, m);
-                if (see > 2000)
-                    see = 2000;
-                else if (see < -2000)
-                    see = -2000;
-                s += see * 12;
+                move_see = see_cp(board, m);
+                have_see = true;
+                int ordering_see = move_see;
+                if (ordering_see > 2000)
+                    ordering_see = 2000;
+                else if (ordering_see < -2000)
+                    ordering_see = -2000;
+                s += ordering_see * 12;
                 if (config.use_capture_history)
                 {
                     const int stm = (board.sideToMove() == chess::Color::WHITE) ? 0 : 1;
@@ -177,12 +183,14 @@ Score qsearch(chess::Board &board,
             else
             {
                 s += 100'000;
+                move_see = see_cp(board, m);
+                have_see = true;
             }
         }
         if (board.givesCheck(m) != chess::CheckType::NO_CHECK)
             s += 5'000;
         if (count < static_cast<int>(scored.size()))
-            scored[count++] = ScoredMove{m, s};
+            scored[count++] = ScoredMove{m, s, move_see, have_see};
     };
     for (int i = 0; i < captures.size(); ++i)
         push_scored(captures[i]);
@@ -292,10 +300,22 @@ Score qsearch(chess::Board &board,
         if (hard_stop(control, stats))
             return 0;
         const chess::Move move = scored[i].move;
+        const bool is_cap = board.isCapture(move) || (move.typeOf() == chess::Move::ENPASSANT);
+        chess::CheckType check_type = chess::CheckType::NO_CHECK;
+        bool have_check_type = false;
+        auto gives_check = [&]() noexcept
+        {
+            if (!have_check_type)
+            {
+                check_type = board.givesCheck(move);
+                have_check_type = true;
+            }
+            return check_type != chess::CheckType::NO_CHECK;
+        };
         // Delta pruning (skip hopeless tactical moves), but do not delta-prune checking moves.
         {
             Score gain = 0;
-            if (board.isCapture(move) || (move.typeOf() == chess::Move::ENPASSANT))
+            if (is_cap)
             {
                 chess::Piece victim = board.at(move.to());
                 if (victim == chess::Piece::NONE && move.typeOf() == chess::Move::ENPASSANT)
@@ -312,21 +332,19 @@ Score qsearch(chess::Board &board,
             }
             if (stand_pat + gain + DELTA_MARGIN <= alpha)
             {
-                if (board.givesCheck(move) == chess::CheckType::NO_CHECK)
-                {
+                if (!gives_check())
                     continue;
-                }
             }
         }
         // SEE pruning complements delta pruning: it filters exchanges that are tactically
         // unsound even if the raw captured material looked tempting.
         // Never apply this filter to checking moves.
         {
-            const bool is_cap = board.isCapture(move) || (move.typeOf() == chess::Move::ENPASSANT);
-            if (is_cap && board.givesCheck(move) == chess::CheckType::NO_CHECK)
+            if (is_cap)
             {
                 constexpr int SEE_QS_PRUNE_CP = 200; // prune only clearly losing captures
-                if (see_cp(board, move) < -SEE_QS_PRUNE_CP)
+                const int move_see = scored[i].has_see ? scored[i].see : see_cp(board, move);
+                if (move_see < -SEE_QS_PRUNE_CP && !gives_check())
                 {
                     continue;
                 }

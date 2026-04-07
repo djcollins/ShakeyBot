@@ -737,8 +737,6 @@ Score negamax(chess::Board &board,
                 badcap_stage_seen = true;
             }
         }
-        const chess::CheckType check_type = board.givesCheck(move);
-        const bool gives_chk = (check_type != chess::CheckType::NO_CHECK);
         // Bad captures are searched last. Do not blanket-skip the entire bad-capture stage in cut nodes,
         // as that can miss tactical resources (especially SEE≈0 lines) and cost strength.
         const bool is_quiet = (!is_capture && !is_promo);
@@ -746,21 +744,66 @@ Score negamax(chess::Board &board,
         if (is_quiet)
             quiet_index = quiet_idx++;
         const bool is_tt_move = (have_tt_best && move == tt_best_move);
-
-        const bool critical_pawn_push =
-            is_quiet && !gives_chk && is_critical_endgame_pawn_push_search(board, move);
+        const bool have_cached_see = picker.current_has_see;
+        const int cached_see = picker.current_see;
+        chess::CheckType check_type = chess::CheckType::NO_CHECK;
+        bool have_check_type = false;
+        auto get_check_type = [&]() noexcept
+        {
+            if (!have_check_type)
+            {
+                check_type = board.givesCheck(move);
+                have_check_type = true;
+            }
+            return check_type;
+        };
+        auto gives_check = [&]() noexcept
+        {
+            return get_check_type() != chess::CheckType::NO_CHECK;
+        };
+        bool critical_pawn_push = false;
+        bool have_critical_pawn_push = false;
+        auto get_critical_pawn_push = [&]() noexcept
+        {
+            if (!have_critical_pawn_push)
+            {
+                critical_pawn_push = is_quiet && is_critical_endgame_pawn_push_search(board, move);
+                have_critical_pawn_push = true;
+            }
+            return critical_pawn_push;
+        };
+        // Cheap early exit for clearly losing late bad captures. Only consult givesCheck if the
+        // capture is already a likely prune candidate from its SEE.
+        if (is_null_window && ply > 0 && !in_check && depth <= 6 &&
+            is_capture && !is_tt_move && is_badcap_stage)
+        {
+            constexpr int SEE_PRUNE_BASE_CP = 150;
+            constexpr int SEE_PRUNE_STEP_CP = 50;
+            const int see_thr = -(SEE_PRUNE_BASE_CP + SEE_PRUNE_STEP_CP * depth);
+            const int move_see = have_cached_see ? cached_see : see_cp(board, move);
+            if (move_see < see_thr && !gives_check())
+                continue;
+        }
+        // After the futility_move_count threshold is reached, skip remaining quiet non-checking moves.
+        // Do not skip TT moves, strategic critical pawn pushes, or checks.
+        if (skip_quiet_moves && is_quiet && !is_tt_move)
+        {
+            if (!get_critical_pawn_push() && !gives_check())
+                continue;
+        }
         // --- Selective check extension ---
         // Extend credible checking moves by +1 ply within a conservative depth/ply band.
         // Quiet checks are common and many are not forcing; only extend "credible" quiet checks.
         int move_ext = 0;
-        if (gives_chk &&
-            depth >= CHECK_EXT_MIN_DEPTH && depth <= CHECK_EXT_MAX_DEPTH &&
-            ply <= CHECK_EXT_MAX_PLY)
+        if (depth >= CHECK_EXT_MIN_DEPTH && depth <= CHECK_EXT_MAX_DEPTH &&
+            ply <= CHECK_EXT_MAX_PLY &&
+            gives_check())
         {
             if (is_capture)
             {
                 // Avoid extending too-losing checking captures (SEE is from the current position).
-                if (see_cp(board, move) >= CHECK_EXT_MIN_SEE_CP)
+                const int move_see = have_cached_see ? cached_see : see_cp(board, move);
+                if (move_see >= CHECK_EXT_MIN_SEE_CP)
                     move_ext = 1;
             }
             else if (is_promo)
@@ -798,10 +841,10 @@ Score negamax(chess::Board &board,
                     move_ext = 1;
             }
         }
-        // After the futility_move_count threshold is reached, we skip remaining quiet non-checking moves.
-        // Important: do NOT skip TT move or checking moves.
-        if (skip_quiet_moves && is_quiet && !gives_chk && !is_tt_move && !critical_pawn_push)
-            continue;
+        const bool gives_chk = have_check_type ? (check_type != chess::CheckType::NO_CHECK)
+                                               : (is_quiet ? gives_check() : false);
+        if (is_quiet && !gives_chk && !have_critical_pawn_push)
+            critical_pawn_push = get_critical_pawn_push();
         // --- Singular extension (conservative) ---
         // If the TT indicates the hash move is clearly best (singular), extend it by +1 ply.
         // Verification: search excluding the TT move at reduced depth with a tight window below the TT score.
@@ -865,7 +908,7 @@ Score negamax(chess::Board &board,
         int lmr_hist_score = 0; // local cont(1..2)+main hist for LMR/pruning
         int main_hist_scaled = 0;
         int cont12_scaled = 0;
-        if (is_quiet && (config.use_history_heuristic || config.use_continuation_history))
+        if (is_quiet && !gives_chk && (config.use_history_heuristic || config.use_continuation_history))
         {
             const int s = stm_index(board);
             const int f = move.from().index();
@@ -1045,19 +1088,6 @@ Score negamax(chess::Board &board,
         }
         if (is_badcap_stage)
             ++stats.badcap_searched;
-        // --- SEE-based capture pruning (v2, safer): only prune clearly losing captures, and only
-        // in the bad-capture stage (after good captures + quiets). This reduces SEE overhead and
-        // avoids pruning defensive tactical resources too aggressively (notably for Black).
-        if (is_null_window && ply > 0 && !in_check && depth <= 6 &&
-            is_capture && !gives_chk && !is_tt_move && is_badcap_stage)
-        {
-            // Conservative threshold (centipawns): prune only very losing exchanges.
-            constexpr int SEE_PRUNE_BASE_CP = 150;
-            constexpr int SEE_PRUNE_STEP_CP = 50;
-            const int see_thr = -(SEE_PRUNE_BASE_CP + SEE_PRUNE_STEP_CP * depth);
-            if (see_cp(board, move) < see_thr)
-                continue;
-        }
         board.makeMove(move);
         if (ply + 1 <= MAX_PLY)
             in_check_stack[ply + 1] = board.inCheck();

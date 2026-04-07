@@ -15,10 +15,13 @@
 // -------------------------------------------------------------------------
 struct MovePicker
 {
+    static constexpr int NO_SEE_SCORE = std::numeric_limits<int>::min();
+
     struct StageList
     {
         std::array<chess::Move, chess::constants::MAX_MOVES> moves{};
         std::array<int, chess::constants::MAX_MOVES> scores{};
+        std::array<int, chess::constants::MAX_MOVES> see_scores{};
         int count = 0;
         int idx = 0;
         bool scored = false;
@@ -26,7 +29,10 @@ struct MovePicker
         inline void add(const chess::Move m) noexcept
         {
             if (count < static_cast<int>(moves.size()))
+            {
                 moves[count++] = m;
+                see_scores[count - 1] = NO_SEE_SCORE;
+            }
         }
         inline void add_scored(const chess::Move m, const int s) noexcept
         {
@@ -34,6 +40,18 @@ struct MovePicker
             {
                 moves[count] = m;
                 scores[count] = s;
+                see_scores[count] = NO_SEE_SCORE;
+                ++count;
+                preset = true;
+            }
+        }
+        inline void add_scored_with_see(const chess::Move m, const int s, const int see) noexcept
+        {
+            if (count < static_cast<int>(moves.size()))
+            {
+                moves[count] = m;
+                scores[count] = s;
+                see_scores[count] = see;
                 ++count;
                 preset = true;
             }
@@ -41,7 +59,9 @@ struct MovePicker
         inline bool pick(chess::Move &out,
                          const chess::Board &board,
                          int ply,
-                         const EngineConfig &config) noexcept
+                         const EngineConfig &config,
+                         int *see_out = nullptr,
+                         bool *has_see_out = nullptr) noexcept
         {
             if (idx >= count)
                 return false;
@@ -50,7 +70,10 @@ struct MovePicker
                 if (!preset)
                 {
                     for (int i = 0; i < count; ++i)
+                    {
                         scores[i] = score_move(board, moves[i], nullptr, ply, config);
+                        see_scores[i] = NO_SEE_SCORE;
+                    }
                 }
                 scored = true;
             }
@@ -68,7 +91,12 @@ struct MovePicker
             {
                 std::swap(moves[idx], moves[best]);
                 std::swap(scores[idx], scores[best]);
+                std::swap(see_scores[idx], see_scores[best]);
             }
+            if (see_out)
+                *see_out = see_scores[idx];
+            if (has_see_out)
+                *has_see_out = (see_scores[idx] != NO_SEE_SCORE);
             out = moves[idx++];
             return true;
         }
@@ -106,6 +134,8 @@ struct MovePicker
     bool done_counter = false;
     StageList bad_caps;
     StageList quiets;
+    int current_see = NO_SEE_SCORE;
+    bool current_has_see = false;
     enum Stage : int
     {
         ST_TT,
@@ -202,9 +232,9 @@ struct MovePicker
                     cap_score -= config.bad_capture_penalty_cp * 16;
 
                 if (good)
-                    good_caps.add_scored(m, cap_score);
+                    good_caps.add_scored_with_see(m, cap_score, see);
                 else
-                    bad_caps.add_scored(m, cap_score);
+                    bad_caps.add_scored_with_see(m, cap_score, see);
             }
             else
             {
@@ -243,6 +273,8 @@ struct MovePicker
     }
     inline bool next(chess::Move &out) noexcept
     {
+        current_see = NO_SEE_SCORE;
+        current_has_see = false;
         for (;;)
         {
             switch (stage)
@@ -257,12 +289,12 @@ struct MovePicker
                 stage = ST_PROMO;
                 break;
             case ST_PROMO:
-                if (promos.pick(out, board, ply, config))
+                if (promos.pick(out, board, ply, config, &current_see, &current_has_see))
                     return true;
                 stage = ST_GOOD_CAP;
                 break;
             case ST_GOOD_CAP:
-                if (good_caps.pick(out, board, ply, config))
+                if (good_caps.pick(out, board, ply, config, &current_see, &current_has_see))
                     return true;
                 stage = ST_KILLER;
                 break;
@@ -281,12 +313,12 @@ struct MovePicker
                 stage = ST_QUIET;
                 break;
             case ST_QUIET:
-                if (quiets.pick(out, board, ply, config))
+                if (quiets.pick(out, board, ply, config, &current_see, &current_has_see))
                     return true;
                 stage = ST_BAD_CAP;
                 break;
             case ST_BAD_CAP:
-                if (bad_caps.pick(out, board, ply, config))
+                if (bad_caps.pick(out, board, ply, config, &current_see, &current_has_see))
                     return true;
                 stage = ST_DONE;
                 break;
