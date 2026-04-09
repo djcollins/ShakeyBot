@@ -51,6 +51,7 @@ Score qsearch(chess::Board &board,
         {
             chess::Movelist evasions;
             chess::movegen::legalmoves(evasions, board);
+            record_legal_movegen(stats, evasions);
             if (evasions.empty())
                 return -MATE_SCORE + ply;
             return draw_score_stm(board, config);
@@ -64,6 +65,7 @@ Score qsearch(chess::Board &board,
     {
         chess::Movelist evasions;
         chess::movegen::legalmoves(evasions, board);
+        record_legal_movegen(stats, evasions);
         if (evasions.empty())
         {
             // Checkmate: losing mate with distance.
@@ -123,6 +125,7 @@ Score qsearch(chess::Board &board,
         int score;
         int see = 0;
         bool has_see = false;
+        bool gives_check = false;
     };
     std::array<ScoredMove, chess::constants::MAX_MOVES> scored;
     int count = 0;
@@ -187,10 +190,11 @@ Score qsearch(chess::Board &board,
                 have_see = true;
             }
         }
-        if (board.givesCheck(m) != chess::CheckType::NO_CHECK)
+        const bool gives_check = (board.givesCheck(m) != chess::CheckType::NO_CHECK);
+        if (gives_check)
             s += 5'000;
         if (count < static_cast<int>(scored.size()))
-            scored[count++] = ScoredMove{m, s, move_see, have_see};
+            scored[count++] = ScoredMove{m, s, move_see, have_see, gives_check};
     };
     for (int i = 0; i < captures.size(); ++i)
         push_scored(captures[i]);
@@ -301,17 +305,7 @@ Score qsearch(chess::Board &board,
             return 0;
         const chess::Move move = scored[i].move;
         const bool is_cap = board.isCapture(move) || (move.typeOf() == chess::Move::ENPASSANT);
-        chess::CheckType check_type = chess::CheckType::NO_CHECK;
-        bool have_check_type = false;
-        auto gives_check = [&]() noexcept
-        {
-            if (!have_check_type)
-            {
-                check_type = board.givesCheck(move);
-                have_check_type = true;
-            }
-            return check_type != chess::CheckType::NO_CHECK;
-        };
+        const bool gives_check = scored[i].gives_check;
         // Delta pruning (skip hopeless tactical moves), but do not delta-prune checking moves.
         {
             Score gain = 0;
@@ -332,7 +326,7 @@ Score qsearch(chess::Board &board,
             }
             if (stand_pat + gain + DELTA_MARGIN <= alpha)
             {
-                if (!gives_check())
+                if (!gives_check)
                     continue;
             }
         }
@@ -344,7 +338,7 @@ Score qsearch(chess::Board &board,
             {
                 constexpr int SEE_QS_PRUNE_CP = 200; // prune only clearly losing captures
                 const int move_see = scored[i].has_see ? scored[i].see : see_cp(board, move);
-                if (move_see < -SEE_QS_PRUNE_CP && !gives_check())
+                if (move_see < -SEE_QS_PRUNE_CP && !gives_check)
                 {
                     continue;
                 }

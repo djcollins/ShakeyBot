@@ -535,3 +535,9 @@ inline Score corrected_eval_stm(const chess::Board &b, const EngineConfig &cfg) 
 
     return e;
 }
+
+inline void record_legal_movegen(SearchStats &stats, const chess::Movelist &moves) noexcept
+{
+    ++stats.legal_movegen_calls;
+    stats.legal_moves_generated += static_cast<std::uint64_t>(moves.size());
+}

@@ -59,6 +59,9 @@ namespace fast_engine
         std::uint64_t razor_attempts = 0;
         std::uint64_t razor_cutoffs = 0;
 
+        std::uint64_t legal_movegen_calls = 0;
+        std::uint64_t legal_moves_generated = 0;
+
         bool is_mate = false;
         bool is_draw = false;
     };

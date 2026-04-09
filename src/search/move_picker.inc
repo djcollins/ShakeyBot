@@ -124,8 +124,16 @@ struct MovePicker
     int ply;
     int depth_remaining;
     chess::Move tt{};
+    chess::Move tt_candidate{};
+    bool have_tt_candidate = false;
     bool have_tt = false;
+    bool tt_verified = false;
     bool done_tt = false;
+    bool capture_stages_built = false;
+    bool quiet_promos_built = false;
+    bool quiet_stages_built = false;
+    int capture_move_count = 0;
+    int quiet_move_count = 0;
     StageList promos;
     StageList good_caps;
     KillerList killers;
@@ -148,17 +156,18 @@ struct MovePicker
         ST_DONE
     };
     Stage stage = ST_TT;
-    explicit MovePicker(const chess::Board &b, const chess::Movelist &ml, const chess::Move *tt_move_ptr, chess::Move killer1_, chess::Move killer2_, int ply_, int depth_remaining_, const EngineConfig &cfg)
+    explicit MovePicker(const chess::Board &b, const chess::Move *tt_move_ptr, chess::Move killer1_, chess::Move killer2_, int ply_, int depth_remaining_, const EngineConfig &cfg)
         : board(b), config(cfg), ply(ply_), depth_remaining(depth_remaining_)
     {
         using namespace chess;
+        (void)killer1_;
+        (void)killer2_;
         const int stm = stm_index(b);
-        const Move killer1 = killer1_;
-        const Move killer2 = killer2_;
-        bool have_k1 = false;
-        bool have_k2 = false;
-        Move k1m = Move::NO_MOVE;
-        Move k2m = Move::NO_MOVE;
+        if (tt_move_ptr && *tt_move_ptr != Move::NO_MOVE)
+        {
+            tt_candidate = *tt_move_ptr;
+            have_tt_candidate = true;
+        }
 
         // Countermove/refutation is a quiet response keyed by the previous move (from,to) and side-to-move.
         Move cm_candidate = Move::NO_MOVE;
@@ -170,97 +179,201 @@ struct MovePicker
         }
         bool have_cm = false;
         Move cmm = Move::NO_MOVE;
+        counter = cmm;
+        have_counter = have_cm;
+    }
+    inline int piece_mask_for_move(const chess::Move &m) const noexcept
+    {
+        const chess::Piece p = board.at(m.from());
+        if (p == chess::Piece::NONE)
+            return 0;
+        return 1 << static_cast<int>(p.type());
+    }
+    inline void verify_tt_move() noexcept
+    {
+        using namespace chess;
+        if (tt_verified)
+            return;
+        tt_verified = true;
+        if (!have_tt_candidate)
+            return;
 
-        for (int i = 0; i < ml.size(); ++i)
+        const int piece_mask = piece_mask_for_move(tt_candidate);
+        if (piece_mask == 0)
+            return;
+
+        Movelist moves;
+        const bool is_cap = board.isCapture(tt_candidate) || (tt_candidate.typeOf() == Move::ENPASSANT);
+        if (is_cap)
+            movegen::legalmoves<movegen::MoveGenType::CAPTURE>(moves, board, piece_mask);
+        else
+            movegen::legalmoves<movegen::MoveGenType::QUIET>(moves, board, piece_mask);
+
+        for (int i = 0; i < moves.size(); ++i)
         {
-            const Move m = ml[i];
-            if (tt_move_ptr && m == *tt_move_ptr)
+            if (moves[i] == tt_candidate)
+            {
+                tt = moves[i];
+                have_tt = true;
+                break;
+            }
+        }
+    }
+    inline void build_capture_stages() noexcept
+    {
+        using namespace chess;
+        if (capture_stages_built)
+            return;
+        capture_stages_built = true;
+
+        Movelist caps;
+        movegen::legalmoves<movegen::MoveGenType::CAPTURE>(caps, board);
+        capture_move_count = static_cast<int>(caps.size());
+
+        const int stm = stm_index(board);
+        for (int i = 0; i < caps.size(); ++i)
+        {
+            const Move m = caps[i];
+            // Before the TT stage is consumed, keep the legal TT move out of later
+            // buckets so it can be returned first. After the TT stage has already
+            // been tried and no TT move was found, do not suppress the candidate
+            // from normal stages or it can be dropped entirely.
+            if (have_tt_candidate && m == tt_candidate && (have_tt || !done_tt))
             {
                 tt = m;
                 have_tt = true;
                 continue;
             }
-            const bool is_promo = (m.typeOf() == Move::PROMOTION);
-            const bool is_cap = b.isCapture(m) || (m.typeOf() == Move::ENPASSANT);
-            // Promotions first (including capture promotions)
-            if (is_promo)
+            if (m.typeOf() == Move::PROMOTION)
             {
                 promos.add(m);
                 continue;
             }
-            if (is_cap)
+
+            const bool gives_check = (board.givesCheck(m) != CheckType::NO_CHECK);
+            int thr = config.good_capture_see_threshold_cp;
+            if (thr == 0 && depth_remaining <= 2)
+                thr = 1;
+
+            const int see = see_cp(board, m);
+            const bool good = gives_check || (see >= thr);
+
+            int cap_score = 0;
+            Piece victim = board.at(m.to());
+            if (victim == Piece::NONE && m.typeOf() == Move::ENPASSANT)
             {
-                // SEE good/bad split using EngineConfig thresholds. Checking captures are always "good".
-                const bool gives_check = (b.givesCheck(m) != CheckType::NO_CHECK);
-
-                int thr = config.good_capture_see_threshold_cp;
-                // Preserve the prior shallow behavior: if threshold==0, require SEE >= +1 at depth_remaining<=2.
-                if (thr == 0 && depth_remaining <= 2)
-                    thr = 1;
-
-                const int see = see_cp(b, m);
-                const bool good = gives_check || (see >= thr);
-
-                // Pre-score captures to avoid repeated SEE work during picking.
-                int cap_score = 0;
-                Piece victim = b.at(m.to());
-                if (victim == Piece::NONE && m.typeOf() == Move::ENPASSANT)
-                {
-                    const Color stmC = b.sideToMove();
-                    const int to_idx = m.to().index();
-                    const int victim_idx = (stmC == Color::WHITE ? to_idx - 8 : to_idx + 8);
-                    if (0 <= victim_idx && victim_idx < 64)
-                        victim = b.at(Square(victim_idx));
-                }
-                Piece attacker = b.at(m.from());
-                if (victim != Piece::NONE && attacker != Piece::NONE)
-                {
-                    const int v_idx = static_cast<int>(victim.type());
-                    const int a_idx = static_cast<int>(attacker.type());
-                    if (0 <= v_idx && v_idx < NUM_ORDER_PT && 0 <= a_idx && a_idx < NUM_ORDER_PT)
-                    {
-                        cap_score += 200'000 + 200 * PIECE_ORDER_VALUE[v_idx] - PIECE_ORDER_VALUE[a_idx];
-                        if (config.use_capture_history)
-                            cap_score += (config.capture_history_ordering_mult) *
-                                         (capture_history[stm][a_idx][m.to().index()][v_idx] >> CAPTURE_HISTORY_SCORE_SHIFT_MAIN);
-                    }
-                }
-                // SEE weighting (ordering only).
-                cap_score += 16 * see;
-                // Bad-capture penalty (ordering only): applied when SEE < threshold and the capture is not a check.
-                if (!gives_check && config.bad_capture_penalty_cp > 0 && see < thr)
-                    cap_score -= config.bad_capture_penalty_cp * 16;
-
-                if (good)
-                    good_caps.add_scored_with_see(m, cap_score, see);
-                else
-                    bad_caps.add_scored_with_see(m, cap_score, see);
+                const Color stmC = board.sideToMove();
+                const int to_idx = m.to().index();
+                const int victim_idx = (stmC == Color::WHITE ? to_idx - 8 : to_idx + 8);
+                if (0 <= victim_idx && victim_idx < 64)
+                    victim = board.at(Square(victim_idx));
             }
+            Piece attacker = board.at(m.from());
+            if (victim != Piece::NONE && attacker != Piece::NONE)
+            {
+                const int v_idx = static_cast<int>(victim.type());
+                const int a_idx = static_cast<int>(attacker.type());
+                if (0 <= v_idx && v_idx < NUM_ORDER_PT && 0 <= a_idx && a_idx < NUM_ORDER_PT)
+                {
+                    cap_score += 200'000 + 200 * PIECE_ORDER_VALUE[v_idx] - PIECE_ORDER_VALUE[a_idx];
+                    if (config.use_capture_history)
+                        cap_score += (config.capture_history_ordering_mult) *
+                                     (capture_history[stm][a_idx][m.to().index()][v_idx] >> CAPTURE_HISTORY_SCORE_SHIFT_MAIN);
+                }
+            }
+            cap_score += 16 * see;
+            if (!gives_check && config.bad_capture_penalty_cp > 0 && see < thr)
+                cap_score -= config.bad_capture_penalty_cp * 16;
+
+            if (good)
+                good_caps.add_scored_with_see(m, cap_score, see);
             else
-            {
-                // Killers are quiet beta-cutoff moves tried before the rest of the quiets.
-                if (killer1 != Move::NO_MOVE && m == killer1)
-                {
-                    have_k1 = true;
-                    k1m = m;
-                    continue;
-                }
-                if (killer2 != Move::NO_MOVE && m == killer2)
-                {
-                    have_k2 = true;
-                    k2m = m;
-                    continue;
-                }
-                // Countermove/refutation stage (quiet response to parent move)
-                if (cm_candidate != Move::NO_MOVE && m == cm_candidate)
-                {
-                    have_cm = true;
-                    cmm = m;
-                    continue;
-                }
-                quiets.add(m);
-            }
+                bad_caps.add_scored_with_see(m, cap_score, see);
         }
+    }
+    inline void build_quiet_promos() noexcept
+    {
+        using namespace chess;
+        if (quiet_promos_built)
+            return;
+        quiet_promos_built = true;
+
+        Movelist pawn_quiets;
+        movegen::legalmoves<movegen::MoveGenType::QUIET>(pawn_quiets, board, PieceGenType::PAWN);
+        for (int i = 0; i < pawn_quiets.size(); ++i)
+        {
+            const Move m = pawn_quiets[i];
+            if (have_tt_candidate && m == tt_candidate && (have_tt || !done_tt))
+            {
+                tt = m;
+                have_tt = true;
+                continue;
+            }
+            if (m.typeOf() == Move::PROMOTION)
+                promos.add(m);
+        }
+    }
+    inline void build_quiet_stages() noexcept
+    {
+        using namespace chess;
+        if (quiet_stages_built)
+            return;
+        quiet_stages_built = true;
+
+        const int stm = stm_index(board);
+        const Move killer1 = killer_moves[0][ply];
+        const Move killer2 = killer_moves[1][ply];
+        bool have_k1 = false;
+        bool have_k2 = false;
+        Move k1m = Move::NO_MOVE;
+        Move k2m = Move::NO_MOVE;
+
+        Move cm_candidate = Move::NO_MOVE;
+        if (ply > 0)
+        {
+            const Move pm = move_stack[ply];
+            if (pm != Move::NO_MOVE && !prior_capture_stack[ply])
+                cm_candidate = counter_moves[stm][pm.from().index()][pm.to().index()];
+        }
+        bool have_cm = false;
+        Move cmm = Move::NO_MOVE;
+
+        Movelist qs;
+        movegen::legalmoves<movegen::MoveGenType::QUIET>(qs, board);
+        quiet_move_count = static_cast<int>(qs.size());
+
+        for (int i = 0; i < qs.size(); ++i)
+        {
+            const Move m = qs[i];
+            if (have_tt_candidate && m == tt_candidate && (have_tt || !done_tt))
+            {
+                tt = m;
+                have_tt = true;
+                continue;
+            }
+            if (m.typeOf() == Move::PROMOTION)
+                continue;
+            if (killer1 != Move::NO_MOVE && m == killer1)
+            {
+                have_k1 = true;
+                k1m = m;
+                continue;
+            }
+            if (killer2 != Move::NO_MOVE && m == killer2)
+            {
+                have_k2 = true;
+                k2m = m;
+                continue;
+            }
+            if (cm_candidate != Move::NO_MOVE && m == cm_candidate)
+            {
+                have_cm = true;
+                cmm = m;
+                continue;
+            }
+            quiets.add(m);
+        }
+
         if (have_k1)
             killers.add(k1m);
         if (have_k2 && (!have_k1 || k2m != k1m))
@@ -271,6 +384,32 @@ struct MovePicker
             have_counter = true;
         }
     }
+    inline bool capture_stages_ready() const noexcept
+    {
+        return capture_stages_built;
+    }
+    inline bool has_any_legal_moves() noexcept
+    {
+        build_capture_stages();
+        if (capture_move_count > 0)
+            return true;
+        build_quiet_stages();
+        return quiet_move_count > 0;
+    }
+    inline bool has_multiple_legal_moves() noexcept
+    {
+        build_capture_stages();
+        if (capture_move_count > 1)
+            return true;
+        build_quiet_stages();
+        return (capture_move_count + quiet_move_count) > 1;
+    }
+    inline int total_legal_moves() noexcept
+    {
+        build_capture_stages();
+        build_quiet_stages();
+        return capture_move_count + quiet_move_count;
+    }
     inline bool next(chess::Move &out) noexcept
     {
         current_see = NO_SEE_SCORE;
@@ -280,30 +419,39 @@ struct MovePicker
             switch (stage)
             {
             case ST_TT:
-                if (have_tt && !done_tt)
+                if (!done_tt)
                 {
+                    verify_tt_move();
                     done_tt = true;
-                    out = tt;
-                    return true;
+                    if (have_tt)
+                    {
+                        out = tt;
+                        return true;
+                    }
                 }
                 stage = ST_PROMO;
                 break;
             case ST_PROMO:
+                build_capture_stages();
+                build_quiet_promos();
                 if (promos.pick(out, board, ply, config, &current_see, &current_has_see))
                     return true;
                 stage = ST_GOOD_CAP;
                 break;
             case ST_GOOD_CAP:
+                build_capture_stages();
                 if (good_caps.pick(out, board, ply, config, &current_see, &current_has_see))
                     return true;
                 stage = ST_KILLER;
                 break;
             case ST_KILLER:
+                build_quiet_stages();
                 if (killers.pick(out))
                     return true;
                 stage = ST_COUNTER;
                 break;
             case ST_COUNTER:
+                build_quiet_stages();
                 if (have_counter && !done_counter)
                 {
                     done_counter = true;
@@ -313,11 +461,13 @@ struct MovePicker
                 stage = ST_QUIET;
                 break;
             case ST_QUIET:
+                build_quiet_stages();
                 if (quiets.pick(out, board, ply, config, &current_see, &current_has_see))
                     return true;
                 stage = ST_BAD_CAP;
                 break;
             case ST_BAD_CAP:
+                build_capture_stages();
                 if (bad_caps.pick(out, board, ply, config, &current_see, &current_has_see))
                     return true;
                 stage = ST_DONE;

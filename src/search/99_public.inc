@@ -22,9 +22,6 @@ bool find_best_move(chess::Board &board,
     {
         stats.is_draw = true;
     }
-    chess::Movelist moves;
-    chess::movegen::legalmoves(moves, board);
-    stats.root_branching_factor = static_cast<int>(moves.size());
     // Try TT-based ordering at the root as well.
     chess::Move root_tt_move{};
     const chess::Move *root_tt_ptr = nullptr;
@@ -36,7 +33,14 @@ bool find_best_move(chess::Board &board,
             root_tt_ptr = &root_tt_move;
         }
     }
-    if (moves.empty())
+    MovePicker root_picker(board, root_tt_ptr, killer_moves[0][0], killer_moves[1][0], 0, depth, config);
+    stats.root_branching_factor = root_picker.total_legal_moves();
+    if (root_picker.capture_stages_ready() && root_picker.bad_caps.count > 0)
+    {
+        ++stats.badcap_gen_nodes;
+        stats.badcap_generated += static_cast<std::uint64_t>(root_picker.bad_caps.count);
+    }
+    if (stats.root_branching_factor == 0)
     {
         stats.nodes++;
         if (board.inCheck())
@@ -56,16 +60,11 @@ bool find_best_move(chess::Board &board,
         stats.score = 0;
         return false;
     }
-    MovePicker root_picker(board, moves, root_tt_ptr, killer_moves[0][0], killer_moves[1][0], 0, depth, config);
-    if (root_picker.bad_caps.count > 0)
-    {
-        ++stats.badcap_gen_nodes;
-        stats.badcap_generated += static_cast<std::uint64_t>(root_picker.bad_caps.count);
-    }
     bool badcap_stage_seen = false;
+    bool badcap_generated_recorded = root_picker.capture_stages_ready();
     // Score alpha = -INF; //replaced by windowed search
     // Score beta  =  INF;
-    chess::Move best_move_local = moves[0];
+    chess::Move best_move_local = chess::Move::NO_MOVE;
     Score best_score_local = -INF;
     const int ply_root = 0;
     bool first = true;
@@ -73,6 +72,15 @@ bool find_best_move(chess::Board &board,
     chess::Move move{};
     for (int mi = 0; root_picker.next(move); ++mi)
     {
+        if (!badcap_generated_recorded && root_picker.capture_stages_ready())
+        {
+            badcap_generated_recorded = true;
+            if (root_picker.bad_caps.count > 0)
+            {
+                ++stats.badcap_gen_nodes;
+                stats.badcap_generated += static_cast<std::uint64_t>(root_picker.bad_caps.count);
+            }
+        }
         if (hard_stop(control, stats))
         {
             stats.has_best_move = false;
@@ -181,6 +189,8 @@ bool find_best_move(chess::Board &board,
             break;
         }
     }
+    if (best_move_local == chess::Move::NO_MOVE)
+        return false;
     best_move_out = best_move_local;
     best_score_out = best_score_local;
     stats.best_move = best_move_local;

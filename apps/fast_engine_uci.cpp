@@ -824,6 +824,9 @@ static void print_search_output(UciIO &io,
         const double badcapG_per_mn = (nodes > 0)
                                           ? (1e6 * static_cast<double>(result.badcap_generated) / static_cast<double>(nodes))
                                           : 0.0;
+        const double lmg_avg = (result.legal_movegen_calls > 0)
+                                   ? (static_cast<double>(result.legal_moves_generated) / static_cast<double>(result.legal_movegen_calls))
+                                   : 0.0;
 
         dbg << " badcapN=" << result.badcap_nodes
             << " badcapP=" << result.badcap_picked
@@ -832,6 +835,9 @@ static void print_search_output(UciIO &io,
             << " badcapGN=" << result.badcap_gen_nodes
             << " badcapG=" << result.badcap_generated
             << " badcapG_Mn=" << std::setprecision(2) << badcapG_per_mn
+            << " lmgC=" << result.legal_movegen_calls
+            << " lmgM=" << result.legal_moves_generated
+            << " lmgAvg=" << std::setprecision(2) << lmg_avg
             << " razorAttempts=" << result.razor_attempts
             << " razorCutoffs=" << result.razor_cutoffs;
 

@@ -430,6 +430,8 @@ namespace fast_engine
 
                 total_stats.razor_attempts += iter_stats.razor_attempts;
                 total_stats.razor_cutoffs += iter_stats.razor_cutoffs;
+                total_stats.legal_movegen_calls += iter_stats.legal_movegen_calls;
+                total_stats.legal_moves_generated += iter_stats.legal_moves_generated;
 
                 total_stats.is_mate = iter_stats.is_mate;
                 total_stats.is_draw = iter_stats.is_draw;
@@ -506,6 +508,12 @@ namespace fast_engine
                 total_stats.badcap_nodes += iter_stats.badcap_nodes;
                 total_stats.badcap_picked += iter_stats.badcap_picked;
                 total_stats.badcap_searched += iter_stats.badcap_searched;
+                total_stats.badcap_gen_nodes += iter_stats.badcap_gen_nodes;
+                total_stats.badcap_generated += iter_stats.badcap_generated;
+                total_stats.razor_attempts += iter_stats.razor_attempts;
+                total_stats.razor_cutoffs += iter_stats.razor_cutoffs;
+                total_stats.legal_movegen_calls += iter_stats.legal_movegen_calls;
+                total_stats.legal_moves_generated += iter_stats.legal_moves_generated;
                 total_stats.is_mate = iter_stats.is_mate;
                 total_stats.is_draw = iter_stats.is_draw;
                 total_stats.depth_reached = std::max(total_stats.depth_reached, iter_stats.depth_reached);
@@ -651,6 +659,8 @@ namespace fast_engine
         result.pv_last_change_depth = total_stats.pv_last_change_depth;
         result.razor_attempts = total_stats.razor_attempts;
         result.razor_cutoffs = total_stats.razor_cutoffs;
+        result.legal_movegen_calls = total_stats.legal_movegen_calls;
+        result.legal_moves_generated = total_stats.legal_moves_generated;
 
         return result.has_best_move;
     }

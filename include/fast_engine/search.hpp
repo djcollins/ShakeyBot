@@ -61,6 +61,10 @@ namespace fast_engine
         // Razoring diagnostics
         std::uint64_t razor_attempts = 0; // nodes where razoring was evaluated (preconditions passed)
         std::uint64_t razor_cutoffs = 0;  // nodes where razoring triggered a cutoff
+
+        // Full legal-move generation diagnostics
+        std::uint64_t legal_movegen_calls = 0;
+        std::uint64_t legal_moves_generated = 0;
     };
 
     // Runtime stop / time control shared across the search stack.

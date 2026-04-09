@@ -8,10 +8,9 @@ static inline int color_index(chess::Color c) noexcept
 
 static inline std::uint64_t passed_mask_for_search(chess::Color us, int sq) noexcept
 {
-    static bool inited = false;
-    static std::uint64_t masks[2][64]; // [WHITE/BLACK][square]
-    if (!inited)
+    static const auto masks = []()
     {
+        std::array<std::array<std::uint64_t, 64>, 2> out{};
         for (int s = 0; s < 64; ++s)
         {
             const int f = s & 7;
@@ -24,11 +23,11 @@ static inline std::uint64_t passed_mask_for_search(chess::Color us, int sq) noex
                 for (int rr = r - 1; rr >= 0; --rr)
                     mb |= 1ULL << (rr * 8 + ff);
             }
-            masks[0][s] = mw; // WHITE
-            masks[1][s] = mb; // BLACK
+            out[0][s] = mw; // WHITE
+            out[1][s] = mb; // BLACK
         }
-        inited = true;
-    }
+        return out;
+    }();
     return masks[color_index(us)][sq];
 }
 
@@ -115,6 +114,7 @@ Score negamax(chess::Board &board,
     {
         chess::Movelist mvs;
         chess::movegen::legalmoves(mvs, board);
+        record_legal_movegen(stats, mvs);
         if (mvs.empty())
             return board.inCheck() ? (-MATE_SCORE + ply) : 0;
         if (board.inCheck())
@@ -567,6 +567,7 @@ Score negamax(chess::Board &board,
             // If not using quiescence, still detect terminal here:
             chess::Movelist leaf_moves;
             chess::movegen::legalmoves(leaf_moves, board);
+            record_legal_movegen(stats, leaf_moves);
             if (leaf_moves.empty())
             {
                 val = board.inCheck() ? (-MATE_SCORE + ply) : 0.0;
@@ -591,34 +592,6 @@ Score negamax(chess::Board &board,
         }
         return val;
     }
-    // --- Generate legal moves ---
-    chess::Movelist moves;
-    chess::movegen::legalmoves(moves, board);
-    // No legal moves: checkmate or stalemate
-    if (moves.empty())
-    {
-        if (board.inCheck())
-        {
-            return -MATE_SCORE + ply; // losing mate, distance-aware
-        }
-        else
-        {
-            // Stalemate (draw) – apply contempt and only mark draw at root
-            if (ply == 0)
-                stats.is_draw = true;
-            return draw_score_stm(board, config);
-        }
-    }
-    // --- One-reply extension ---
-    // If the side to move has only one legal move, the line is forcing.
-    // Extend by +1 ply within a conservative depth/ply band.
-    if (ply > 0 &&
-        depth >= ONE_REPLY_EXT_MIN_DEPTH && depth <= ONE_REPLY_EXT_MAX_DEPTH &&
-        ply <= ONE_REPLY_EXT_MAX_PLY &&
-        moves.size() == 1)
-    {
-        depth += 1;
-    }
     // --- Internal Iterative Deepening (IID) ---
     // If we have no TT move at a PV node, run a reduced-depth search to seed a TT best-move
     // for move ordering (helps stabilize PV and reduces late PV changes).
@@ -642,7 +615,29 @@ Score negamax(chess::Board &board,
     }
     // --- Move ordering: MovePicker staged ordering ---
     const chess::Move *tt_move_ptr = have_tt_best ? &tt_best_move : nullptr;
-    MovePicker picker(board, moves, tt_move_ptr, killer_moves[0][ply], killer_moves[1][ply], ply, depth, config);
+    MovePicker picker(board, tt_move_ptr, killer_moves[0][ply], killer_moves[1][ply], ply, depth, config);
+    // No legal moves: checkmate or stalemate
+    if (!picker.has_any_legal_moves())
+    {
+        if (board.inCheck())
+        {
+            return -MATE_SCORE + ply; // losing mate, distance-aware
+        }
+        else
+        {
+            if (ply == 0)
+                stats.is_draw = true;
+            return draw_score_stm(board, config);
+        }
+    }
+    // If the side to move has only one legal move, the line is forcing.
+    if (ply > 0 &&
+        depth >= ONE_REPLY_EXT_MIN_DEPTH && depth <= ONE_REPLY_EXT_MAX_DEPTH &&
+        ply <= ONE_REPLY_EXT_MAX_PLY &&
+        !picker.has_multiple_legal_moves())
+    {
+        depth += 1;
+    }
     // "Improving" signal for LMR: compare static eval with same-side-to-move eval two plies earlier.
     // We compute this once per node and store it for (ply-2) lookups.
     Score node_static_eval = node_corr_eval;
@@ -685,10 +680,12 @@ Score negamax(chess::Board &board,
     // currently carry an explicit PV flag, so we don't approximate ttPv from
     // TT_EXACT / depth — that tends to over-trigger PV-specific logic and can hurt strength.
     const bool tt_pv_node = pv;
-    if (picker.bad_caps.count > 0)
+    bool badcap_generated_recorded = false;
+    if (picker.capture_stages_ready() && picker.bad_caps.count > 0)
     {
         ++stats.badcap_gen_nodes;
         stats.badcap_generated += static_cast<std::uint64_t>(picker.bad_caps.count);
+        badcap_generated_recorded = true;
     }
     Score best_score = -INF;
     chess::Move best_move_local{};
@@ -722,6 +719,15 @@ Score negamax(chess::Board &board,
     chess::Move move{};
     for (int mi = 0; picker.next(move); ++mi)
     {
+        if (!badcap_generated_recorded && picker.capture_stages_ready())
+        {
+            badcap_generated_recorded = true;
+            if (picker.bad_caps.count > 0)
+            {
+                ++stats.badcap_gen_nodes;
+                stats.badcap_generated += static_cast<std::uint64_t>(picker.bad_caps.count);
+            }
+        }
         // When running singular-extension verification, exclude the specified move at this node only.
         if (g_excluded_move_ply == ply && g_excluded_move != chess::Move::NO_MOVE && move == g_excluded_move)
             continue;
@@ -855,7 +861,7 @@ Score negamax(chess::Board &board,
             !in_check &&
             ply > 0 &&
             depth >= SINGULAR_EXT_MIN_DEPTH &&
-            moves.size() > 1 &&
+            picker.has_multiple_legal_moves() &&
             tt_entry_flag == TT_EXACT &&
             tt_entry_depth >= depth - 1 &&
             std::abs(tt_entry_value) < MATE_BOUND)
