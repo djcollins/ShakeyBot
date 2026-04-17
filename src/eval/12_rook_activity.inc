@@ -18,7 +18,11 @@ constexpr double ROOK_SEMI_OPEN_FILE_BONUS_EG = 0.07;
 constexpr double ROOK_ON_7TH_BONUS_MG = 0.10;
 constexpr double ROOK_ON_7TH_BONUS_EG = 0.16;
 
-double rook_activity_term_for_color(const Board &board, Color us, double mg_weight, double eg_weight)
+static inline double rook_activity_term_for_color(const Board &board,
+                                                  Color us,
+                                                  double mg_weight,
+                                                  double eg_weight,
+                                                  const EvalInfo &info)
 {
     using namespace chess;
 
@@ -28,7 +32,6 @@ double rook_activity_term_for_color(const Board &board, Color us, double mg_weig
     if (!our_rooks)
         return 0.0;
 
-    const Bitboard our_pawns = board.pieces(PieceType::PAWN, us);
     const Bitboard enemy_pawns = board.pieces(PieceType::PAWN, them);
 
     const Square enemy_king = board.kingSq(them);
@@ -52,13 +55,10 @@ double rook_activity_term_for_color(const Board &board, Color us, double mg_weig
         const int r = s >> 3;
         const int f = s & 7;
 
-        const Bitboard file_mask = attacks::MASK_FILE[f];
-        const bool has_our_pawn = static_cast<bool>(our_pawns & file_mask);
-        const bool has_enemy_pawn = static_cast<bool>(enemy_pawns & file_mask);
-
-        if (!has_our_pawn && !has_enemy_pawn)
+        const int file_kind = file_kind_for_attacker(info, us, f);
+        if (file_kind == 2)
             score += open_bonus;
-        else if (!has_our_pawn && has_enemy_pawn)
+        else if (file_kind == 1)
             score += semi_bonus;
 
         const bool on_7th = (us == Color::WHITE) ? (r == 6) : (r == 1);
@@ -69,10 +69,13 @@ double rook_activity_term_for_color(const Board &board, Color us, double mg_weig
     return score;
 }
 
-double rook_activity_term_white_minus_black(const Board &board, double mg_weight, double eg_weight)
+static inline double rook_activity_term_white_minus_black(const Board &board,
+                                                          double mg_weight,
+                                                          double eg_weight,
+                                                          const EvalInfo &info)
 {
-    const double w = rook_activity_term_for_color(board, Color::WHITE, mg_weight, eg_weight);
-    const double b = rook_activity_term_for_color(board, Color::BLACK, mg_weight, eg_weight);
+    const double w = rook_activity_term_for_color(board, Color::WHITE, mg_weight, eg_weight, info);
+    const double b = rook_activity_term_for_color(board, Color::BLACK, mg_weight, eg_weight, info);
     return w - b;
 }
 

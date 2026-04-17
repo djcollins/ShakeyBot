@@ -197,7 +197,6 @@ static Score static_eval_stack[MAX_PLY + 1];
 // LMR reduction tables (fixed-point scale 1024).
 static int lmr_reductions[MAX_PLY + 2];
 static std::once_flag lmr_tables_once;
-static thread_local int lmr_root_delta = 1;
 inline void init_lmr_tables_once()
 {
     std::call_once(lmr_tables_once, []()
@@ -210,18 +209,23 @@ inline void init_lmr_tables_once()
                 } });
 }
 
-inline int sf_lmr_reduction_fp(bool improving, int depth, int moveCount, int delta, bool ttPvNode)
+inline int sf_lmr_reduction_fp(bool improving, int depth, int moveCount, int delta) noexcept
 {
-    (void)ttPvNode;
     // reductionScale = reductions[depth] * reductions[moveCount]
     const int d = std::clamp(depth, 0, MAX_PLY + 1);
     const int mn = std::clamp(moveCount, 1, MAX_PLY + 1);
     const int reductionScale = lmr_reductions[d] * lmr_reductions[mn];
-    // r = reductionScale - delta*764/rootDelta + (!improving)*reductionScale*191/512 + 1087
+    // Base reduction grows with depth and move index.
+    // Use the *local* node window only: cut nodes can reduce a bit more, while wider
+    // PV-ish windows should reduce less. Avoid coupling every node to the root aspiration width.
     int r = reductionScale;
-    r -= (delta * 764) / std::max(1, lmr_root_delta);
     if (!improving)
         r += (reductionScale * 191) / 512;
+    const int local_delta = std::clamp(delta, 1, 64);
+    if (local_delta <= ONE_CP)
+        r += 192; // null-window / cut nodes: slightly more aggressive
+    else
+        r -= std::min(384, (local_delta - 1) * 8); // wider windows: back off reductions
     r += 1087;
     return r;
 }
@@ -231,9 +235,9 @@ inline int lmr_adjusted_fp(bool improving, int depth, int moveCount, int delta, 
     // Fixed-point LMR:
     //   r = reduction(improving, depth, moveCount, delta)
     //   r -= 32 * moveCount
-    //   if (ttPv) r += 979
+    //   if (ttPv) reduce less
     //   r -= statScore * coeff(depth) / 16384
-    int r = sf_lmr_reduction_fp(improving, depth, moveCount, delta, ttPvNode);
+    int r = sf_lmr_reduction_fp(improving, depth, moveCount, delta);
     // Tunable move-index slope: scale the per-move reduction term.
     // Base coefficient is 32 (fixed-point), which corresponds to ~0.031 ply per move after /1024.
     const int slope_coeff = std::clamp(static_cast<int>(std::llround(32.0 * slopeMult)), 0, 256);
@@ -244,7 +248,7 @@ inline int lmr_adjusted_fp(bool improving, int depth, int moveCount, int delta, 
     const int base_delta_fp = static_cast<int>(std::llround((baseMult - 1.0) * 512.0));
     r += base_delta_fp;
     if (ttPvNode)
-        r += 979;
+        r -= 512; // PV nodes should reduce less, not more.
 
     // Depth-dependent symmetric clamp and smooth coefficient:
     //   clamp(statScore) to +/- (256 * depth)
@@ -256,6 +260,8 @@ inline int lmr_adjusted_fp(bool improving, int depth, int moveCount, int delta, 
     const int coeff = 1100 + (1582 - 1100) * d16 / 16;
 
     r -= (stat_clamped * coeff) / 16384;
+    if (r < 0)
+        r = 0;
     return r;
 }
 
@@ -277,6 +283,8 @@ inline Score child_futility_margin(int depth, bool improving) noexcept
 }
 
 static int cont_history_pc[2][NUM_ORDER_PT][64][NUM_ORDER_PT][64]; // [stm][prevPt][prevTo][curPt][curTo]
+// Plain continuation table kept on disk for future experiments, but currently unplugged.
+constexpr bool ENABLE_PLAIN_CONT_HISTORY = false;
 // Correction history (centipawns): learned adjustment for static eval used by pruning gates.
 // Indexed by (side-to-move, pawn-key). Reset on ucinewgame for deterministic testing.
 constexpr int CORR_HIST_SIZE = 16384; // power of two
@@ -427,7 +435,8 @@ inline void update_capture_history_entry(int &v, int delta) noexcept
         return;
     if (prev_to < 0 || prev_to >= 64 || cur_from < 0 || cur_from >= 64 || cur_to < 0 || cur_to >= 64)
         return;
-    update_cont_history_entry(cont_history[stm][prev_to][cur_from][cur_to], delta);
+    if constexpr (ENABLE_PLAIN_CONT_HISTORY)
+        update_cont_history_entry(cont_history[stm][prev_to][cur_from][cur_to], delta);
     if (0 <= prev_pt && prev_pt < NUM_ORDER_PT && 0 <= cur_pt && cur_pt < NUM_ORDER_PT)
         update_cont_history_entry(cont_history_pc[stm][prev_pt][prev_to][cur_pt][cur_to], delta);
 }

@@ -64,17 +64,17 @@ static inline Bitboard king_zone_2ring(const Square ksq)
 }
 
 
-static inline double king_safe_check_pressure_against_color(const Board &board, Color defender)
+static inline double king_safe_check_pressure_against_color(const Board &board, Color defender, const EvalInfo &info)
 {
     const Color attacker = (defender == Color::WHITE ? Color::BLACK : Color::WHITE);
-    const Square ksq = board.kingSq(defender);
+    const Square ksq = info.king_sq[cidx(defender)];
 
-    const Bitboard occ = board.occ();
+    const Bitboard occ = info.occ;
     const Bitboard occ_att = board.us(attacker);
 
     // "Safe" approximation: ignore checks where the checking destination is trivially
     // recaptured by a pawn or the king.
-    const auto &pe = pawn_hash_probe(board);
+    const auto &pe = *info.pawn_entry;
     const Bitboard def_pawn_att = (defender == Color::WHITE) ? Bitboard(pe.pawn_attacks_w)
                                                              : Bitboard(pe.pawn_attacks_b);
     const Bitboard def_king_att = chess::attacks::king(ksq);
@@ -155,37 +155,20 @@ static inline double king_safe_check_pressure_against_color(const Board &board, 
            (KSAFECHK_Q_W * static_cast<double>(q_cnt));
 }
 
-static inline double king_open_lines_pressure_against_color(const Board &board, Color defender)
+static inline double king_open_lines_pressure_against_color(const Board &board, Color defender, const EvalInfo &info)
 {
     const Color attacker = (defender == Color::WHITE ? Color::BLACK : Color::WHITE);
-    const Square ksq = board.kingSq(defender);
+    const Square ksq = info.king_sq[cidx(defender)];
 
-    const Bitboard occ = board.occ();
+    const Bitboard occ = info.occ;
     const Bitboard ring1 = chess::attacks::king(ksq);
     const Bitboard kbb = Bitboard::fromSquare(ksq.index());
 
-    const Bitboard att_pawns = board.pieces(PieceType::PAWN, attacker);
-    const Bitboard def_pawns = board.pieces(PieceType::PAWN, defender);
-
     const int k_file = ksq.index() & 7;
 
-    auto file_kind_for_attacker = [&](int f) -> int
-    {
-        if (f < 0 || f > 7)
-            return 0;
-        const Bitboard m = chess::attacks::MASK_FILE[f];
-        const bool any_pawn = static_cast<bool>((att_pawns | def_pawns) & m);
-        const bool has_att_pawn = static_cast<bool>(att_pawns & m);
-        if (!any_pawn)
-            return 2; // open
-        if (!has_att_pawn)
-            return 1; // semi-open for attacker
-        return 0;
-    };
-
-    const int fk_m1 = file_kind_for_attacker(k_file - 1);
-    const int fk_0 = file_kind_for_attacker(k_file);
-    const int fk_p1 = file_kind_for_attacker(k_file + 1);
+    const int fk_m1 = file_kind_for_attacker(info, attacker, k_file - 1);
+    const int fk_0 = file_kind_for_attacker(info, attacker, k_file);
+    const int fk_p1 = file_kind_for_attacker(info, attacker, k_file + 1);
 
     auto file_kind = [&](int f) -> int
     {
@@ -258,12 +241,14 @@ static inline double king_open_lines_pressure_against_color(const Board &board, 
     return pen;
 }
 
-static inline double king_danger_lines_checks_penalty_against_color(const Board &board, Color defender)
+static inline double king_danger_lines_checks_penalty_against_color(const Board &board,
+                                                                    Color defender,
+                                                                    const EvalInfo &info)
 {
     // These signals should matter mostly in the middlegame; caller applies mg_weight.
     // Returned value is a *penalty* (larger = worse for defender).
-    return king_safe_check_pressure_against_color(board, defender) +
-           king_open_lines_pressure_against_color(board, defender);
+    return king_safe_check_pressure_against_color(board, defender, info) +
+           king_open_lines_pressure_against_color(board, defender, info);
 }
 
 double king_zone_attack_pressure_against_color(const Board &board, Color defender)
@@ -340,7 +325,10 @@ double king_zone_attack_pressure_against_color(const Board &board, Color defende
 // This engine's phase_0_256 currently grows as pieces come OFF the board (i.e. it is an
 // "endgame-progress" phase). Therefore, the caller must pass a *middlegame-like* weight
 // (typically computed as eg_weight = 1 - endgame_progress).
-double king_safety_term_for_color(const Board &board, Color color, double mg_weight)
+static inline double king_safety_term_for_color(const Board &board,
+                                                Color color,
+                                                double mg_weight,
+                                                const EvalInfo &info)
 {
     // Penalties are positive; we return a "safety score" (higher is better).
     const double cover_storm_pen = king_cover_storm_penalty_for_color(board, color);
@@ -348,7 +336,7 @@ double king_safety_term_for_color(const Board &board, Color color, double mg_wei
 
     // New: safe checks + open lines to king (MG-weighted; attacker-material gating is applied
     // in king_safety_term_white_minus_black).
-    const double lines_checks_pen = king_danger_lines_checks_penalty_against_color(board, color);
+    const double lines_checks_pen = king_danger_lines_checks_penalty_against_color(board, color, info);
 
     // Donna cover/storm is MG-weighted; keep king-zone pressure as-is.
     const double total_pen = (cover_storm_pen * mg_weight) + zone_attack_pen + (lines_checks_pen * mg_weight);
@@ -356,7 +344,10 @@ double king_safety_term_for_color(const Board &board, Color color, double mg_wei
     return -total_pen;
 }
 
-double king_safety_term_white_minus_black(const Board &board, double mg_weight, const MaterialEntry &mat)
+static inline double king_safety_term_white_minus_black(const Board &board,
+                                                        double mg_weight,
+                                                        const MaterialEntry &mat,
+                                                        const EvalInfo &info)
 {
     // Donna-style concept (but smoother): king safety should matter in proportion to the
     // attacker's ability to convert "king-zone pressure" into real threats.
@@ -409,8 +400,8 @@ double king_safety_term_white_minus_black(const Board &board, double mg_weight, 
     const double w_weight = attacker_kingsafety_weight(Color::BLACK);
     const double b_weight = attacker_kingsafety_weight(Color::WHITE);
 
-    const double w = king_safety_term_for_color(board, Color::WHITE, mg_weight) * w_weight;
-    const double b = king_safety_term_for_color(board, Color::BLACK, mg_weight) * b_weight;
+    const double w = king_safety_term_for_color(board, Color::WHITE, mg_weight, info) * w_weight;
+    const double b = king_safety_term_for_color(board, Color::BLACK, mg_weight, info) * b_weight;
 
     return w - b;
 }

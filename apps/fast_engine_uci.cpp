@@ -226,6 +226,15 @@ static void handle_setoption(const std::string &line,
             config.eval.outposts = static_cast<double>(v) / 100.0;
         }
     }
+    else if (name == "ClosednessScale")
+    {
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.closedness = static_cast<double>(v) / 100.0;
+        }
+    }
     else if (name == "PawnStructureScale")
     {
         if (!value.empty())
@@ -242,6 +251,15 @@ static void handle_setoption(const std::string &line,
             int v = std::stoi(value);
             v = std::max(0, std::min(300, v));
             config.eval.passed_pawns = static_cast<double>(v) / 100.0;
+        }
+    }
+    else if (name == "ComplexityScale")
+    {
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.complexity = static_cast<double>(v) / 100.0;
         }
     }
     else if (name == "RookActivityScale")
@@ -287,6 +305,15 @@ static void handle_setoption(const std::string &line,
             int v = std::stoi(value);
             v = std::max(0, std::min(300, v));
             config.eval.threats = static_cast<double>(v) / 100.0;
+        }
+    }
+    else if (name == "QueenVulnerabilityScale")
+    {
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(300, v));
+            config.eval.queen_vulnerability = static_cast<double>(v) / 100.0;
         }
     }
     else if (name == "UseStockPST")
@@ -380,33 +407,6 @@ static void handle_setoption(const std::string &line,
             int v = std::stoi(value);
             v = std::max(0, std::min(2000, v));
             config.bad_capture_penalty_cp = v;
-        }
-    }
-    else if (name == "KillerBonus1")
-    {
-        if (!value.empty())
-        {
-            int v = std::stoi(value);
-            v = std::max(0, std::min(200000, v));
-            config.killer_bonus_1 = v;
-        }
-    }
-    else if (name == "KillerBonus2")
-    {
-        if (!value.empty())
-        {
-            int v = std::stoi(value);
-            v = std::max(0, std::min(200000, v));
-            config.killer_bonus_2 = v;
-        }
-    }
-    else if (name == "CounterMoveBonus")
-    {
-        if (!value.empty())
-        {
-            int v = std::stoi(value);
-            v = std::max(0, std::min(100000, v));
-            config.counter_move_bonus = v;
         }
     }
     else if (name == "HistoryBonusMult")
@@ -1131,9 +1131,11 @@ int main()
 
             io.send("option name SpaceScale type spin default " + std::to_string(to_cp(config.eval.space)) + " min 0 max 300");
             io.send("option name OutpostScale type spin default " + std::to_string(to_cp(config.eval.outposts)) + " min 0 max 300");
+            io.send("option name ClosednessScale type spin default " + std::to_string(to_cp(config.eval.closedness)) + " min 0 max 300");
 
             io.send("option name PawnStructureScale type spin default " + std::to_string(to_cp(config.eval.pawn_structure)) + " min 0 max 300");
             io.send("option name PassedPawnScale type spin default " + std::to_string(to_cp(config.eval.passed_pawns)) + " min 0 max 300");
+            io.send("option name ComplexityScale type spin default " + std::to_string(to_cp(config.eval.complexity)) + " min 0 max 300");
 
             io.send("option name RookActivityScale type spin default " + std::to_string(to_cp(config.eval.rook_activity)) + " min 0 max 300");
             io.send("option name KingSafetyScale type spin default " + std::to_string(to_cp(config.eval.king_safety)) + " min 0 max 300");
@@ -1143,6 +1145,7 @@ int main()
             io.send("option name UseStockPST type check default " + std::string(as_bool(config.eval.use_stock_pst)));
 
             io.send("option name ThreatTerm type spin default " + std::to_string(to_cp(config.eval.threats)) + " min 0 max 300");
+            io.send("option name QueenVulnerabilityScale type spin default " + std::to_string(to_cp(config.eval.queen_vulnerability)) + " min 0 max 300");
 
             io.send("option name TempoBonus type spin default " + std::to_string(config.tempo_bonus_cp) + " min 0 max 50");
             io.send("option name EnableEndgameScaling type check default " + std::string(as_bool(config.enable_endgame_scaling)));
@@ -1160,9 +1163,6 @@ int main()
             io.send("option name UseProbCut type check default " + std::string(as_bool(config.use_probcut)));
             io.send("option name GoodCaptureSEEThreshold type spin default " + std::to_string(config.good_capture_see_threshold_cp) + " min -100 max 100");
             io.send("option name BadCapturePenalty type spin default " + std::to_string(config.bad_capture_penalty_cp) + " min 0 max 250");
-            io.send("option name KillerBonus1 type spin default " + std::to_string(config.killer_bonus_1) + " min 0 max 150000");
-            io.send("option name KillerBonus2 type spin default " + std::to_string(config.killer_bonus_2) + " min 0 max 150000");
-            io.send("option name CounterMoveBonus type spin default " + std::to_string(config.counter_move_bonus) + " min 0 max 30000");
             io.send("option name HistoryBonusMult type spin default " + std::to_string(static_cast<int>(std::llround(config.history_ordering_mult * 100.0))) + " min 0 max 300");
             io.send("option name ContinuationBonusMult type spin default " + std::to_string(static_cast<int>(std::llround(config.continuation_ordering_mult * 100.0))) + " min 0 max 300");
             io.send("option name HistoryCutoffBonus type spin default " + std::to_string(static_cast<int>(std::llround(config.history_cutoff_bonus_mult * 100.0))) + " min 0 max 300");

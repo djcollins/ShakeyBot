@@ -82,14 +82,17 @@ static inline std::uint64_t eval_config_signature(const EngineConfig &cfg)
 
     mix_double(cfg.eval.space);
     mix_double(cfg.eval.outposts);
+    mix_double(cfg.eval.closedness);
 
     mix_double(cfg.eval.pawn_structure);
     mix_double(cfg.eval.passed_pawns);
+    mix_double(cfg.eval.complexity);
 
     mix_double(cfg.eval.rook_activity);
     mix_double(cfg.eval.bishop_pair_bad_bishop);
 
     mix_double(cfg.eval.threats);
+    mix_double(cfg.eval.queen_vulnerability);
     mix_double(cfg.eval.king_safety);
 
     mix_double(cfg.eval.pst);

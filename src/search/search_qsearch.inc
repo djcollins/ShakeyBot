@@ -71,7 +71,7 @@ Score qsearch(chess::Board &board,
             // Checkmate: losing mate with distance.
             return -MATE_SCORE + ply;
         }
-        // Order evasions using the same heuristic pipeline (TT/history).
+        // Order evasions using the same heuristic pipeline as before.
         order_moves(board, evasions, nullptr, ply, config);
         for (int i = 0; i < evasions.size(); ++i)
         {
@@ -110,8 +110,6 @@ Score qsearch(chess::Board &board,
     // (Non-tactical quiets are intentionally excluded to prevent horizon explosion.)
     chess::Movelist captures;
     chess::movegen::legalmoves<chess::movegen::MoveGenType::CAPTURE>(captures, board);
-    // Only generate quiet promotions (non-captures). Capture promotions are already in `captures`.
-    // This avoids generating *all* pawn quiet moves just because a single promotion pawn exists.
     const chess::Color stm = board.sideToMove();
     const std::uint64_t pawns_bits = board.pieces(chess::PieceType::PAWN, stm).getBits();
     constexpr std::uint64_t WHITE_PROMO_PAWNS = 0x00FF000000000000ULL; // rank 7 pawns (from White POV)
@@ -198,93 +196,33 @@ Score qsearch(chess::Board &board,
     };
     for (int i = 0; i < captures.size(); ++i)
         push_scored(captures[i]);
-    // Add promotion moves (quiet + capture).
-    // Capture promotions are normally included by CAPTURE move generation, but we generate them here
-    // as well and de-duplicate defensively, to avoid relying on generator details.
-    auto in_captures = [&](const chess::Move &m) -> bool
-    {
-        for (int j = 0; j < captures.size(); ++j)
-            if (captures[j] == m)
-                return true;
-        return false;
-    };
-
     if (promo_pawns_bits != 0ULL)
     {
-        const chess::Square king_sq = board.kingSq(stm);
         chess::Bitboard promo_pawns(promo_pawns_bits);
-
-        auto try_promo = [&](const chess::Square from_sq, const int to_idx, const bool is_capture_target)
-        {
-            if (to_idx < 0 || to_idx >= 64)
-                return;
-
-            const chess::Square to_sq(to_idx);
-
-            if (is_capture_target)
-            {
-                const chess::Piece target = board.at(to_sq);
-                if (target == chess::Piece::NONE || target.color() == stm)
-                    return;
-            }
-            else
-            {
-                // Quiet promotions require an empty target square.
-                if (board.at(to_sq) != chess::Piece::NONE)
-                    return;
-            }
-
-            constexpr chess::PieceType promo_types[4] = {
-                chess::PieceType::QUEEN,
-                chess::PieceType::ROOK,
-                chess::PieceType::BISHOP,
-                chess::PieceType::KNIGHT};
-
-            for (const chess::PieceType pt : promo_types)
-            {
-                const chess::Move m = chess::Move::make<chess::Move::PROMOTION>(from_sq, to_sq, pt);
-
-                // Avoid duplicates if movegen already produced capture promotions.
-                if (is_capture_target && in_captures(m))
-                    continue;
-
-                // Ensure legality (primarily pins / king exposure). The library's movegen already
-                // handles this when generating all pawn moves, but we're generating only promotions
-                // here for performance.
-                board.makeMove(m);
-                const bool illegal = board.isAttacked(king_sq, board.sideToMove());
-                board.unmakeMove(m);
-
-                if (!illegal)
-                    push_scored(m);
-            }
+        constexpr chess::PieceType PROMO_TYPES[4] = {
+            chess::PieceType::QUEEN,
+            chess::PieceType::ROOK,
+            chess::PieceType::BISHOP,
+            chess::PieceType::KNIGHT,
         };
-
+        const int push = (stm == chess::Color::WHITE) ? 8 : -8;
         while (promo_pawns)
         {
-            const int from_idx = promo_pawns.pop();
-            const int file = from_idx & 7;
-
-            const chess::Square from_sq(from_idx);
-
-            // Forward (quiet) promotion.
-            const int fwd = (stm == chess::Color::WHITE) ? (from_idx + 8) : (from_idx - 8);
-            try_promo(from_sq, fwd, /*is_capture_target=*/false);
-
-            // Capture promotions.
-            if (stm == chess::Color::WHITE)
+            const chess::Square from = chess::Square(promo_pawns.pop());
+            const int to_idx = from.index() + push;
+            if (to_idx < 0 || to_idx >= 64)
+                continue;
+            const chess::Square to = chess::Square(to_idx);
+            if (board.at(to) != chess::Piece::NONE)
+                continue;
+            for (const chess::PieceType promo : PROMO_TYPES)
             {
-                if (file > 0)
-                    try_promo(from_sq, from_idx + 7, /*is_capture_target=*/true);
-                if (file < 7)
-                    try_promo(from_sq, from_idx + 9, /*is_capture_target=*/true);
-            }
-            else
-            {
-                if (file > 0)
-                    try_promo(from_sq, from_idx - 9, /*is_capture_target=*/true);
-                if (file < 7)
-                    try_promo(from_sq, from_idx - 7, /*is_capture_target=*/true);
+                const chess::Move move = chess::Move::make<chess::Move::PROMOTION>(from, to, promo);
+                board.makeMove(move);
+                const bool legal = !board.isAttacked(board.kingSq(~board.sideToMove()), board.sideToMove());
+                board.unmakeMove(move);
+                if (legal)
+                    push_scored(move);
             }
         }
     }

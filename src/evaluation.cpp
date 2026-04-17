@@ -35,6 +35,7 @@ namespace fast_engine
 #include "eval/02_material_imbalance_sf12.inc"
 #include "eval/03_endgame_scale_king_crowding.inc"
 #include "eval/03a_kpk_bitbase.inc"
+#include "eval/03b_eval_shared.inc"
 #include "eval/04_mobility.inc"
 #include "eval/05_outposts.inc"
 #include "eval/06_pawn_structure.inc"
@@ -47,6 +48,9 @@ namespace fast_engine
 #include "eval/13_xray_pins.inc"
 #include "eval/14_psqt.inc"
 #include "eval/15_threats_space.inc"
+#include "eval/16_closedness.inc"
+#include "eval/17_complexity.inc"
+#include "eval/18_queen_vulnerability.inc"
 
     } // anonymous namespace
 

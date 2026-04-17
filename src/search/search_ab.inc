@@ -168,10 +168,8 @@ Score negamax(chess::Board &board,
     // TT cutoffs are only safe/reliable in null-window (cut) nodes.
     // Do not attempt to infer PV-ness from window width beyond this gate; PV semantics are handled elsewhere.
     const bool is_null_window_tt = (beta - alpha) <= ONE_CP;
-    // Initialize LMR tables and root aspiration delta (used in LMR reduction formula).
+    // Initialize LMR tables.
     init_lmr_tables_once();
-    if (ply == 0)
-        lmr_root_delta = std::max(1, static_cast<int>(beta - alpha));
     // TT probe (with mate-distance restore)
     if (tt_here)
     {
@@ -219,7 +217,7 @@ Score negamax(chess::Board &board,
                         if (failHigh)
                         {
                             // 1) Quiet TT move bonus (main history + continuation histories)
-                            if (config.use_history_heuristic && e.hasMove)
+                            if (e.hasMove && (config.use_history_heuristic || config.use_continuation_history))
                             {
                                 const chess::Move hm = e.bestMove;
                                 if (hm != chess::Move::NO_MOVE)
@@ -232,7 +230,8 @@ Score negamax(chess::Board &board,
                                         const int f = hm.from().index();
                                         const int t = hm.to().index();
                                         const int bonus_tt = std::min(120 * depth - 75, 1241); // TO BE TUNED
-                                        update_main_history_entry(history_heur[s][f][t], bonus_tt);
+                                        if (config.use_history_heuristic)
+                                            update_main_history_entry(history_heur[s][f][t], bonus_tt);
                                         if (config.use_continuation_history && ply > 0)
                                         {
                                             const int cur_pt = pt_index(board.at(hm.from()));
@@ -254,10 +253,8 @@ Score negamax(chess::Board &board,
                                                 const int delta = (cont_tt * W[i]) / 1024;
                                                 if (delta == 0)
                                                     continue;
-                                                update_cont_history_entry(cont_history[s][prev_to][f][t], delta);
                                                 const int prev_pt = moved_pt_stack[idx];
-                                                if (prev_pt >= 0 && cur_pt >= 0)
-                                                    update_cont_history_entry(cont_history_pc[s][prev_pt][prev_to][cur_pt][t], delta);
+                                                update_continuation_no_board(s, prev_pt, prev_to, cur_pt, f, t, delta);
                                             }
                                         }
                                     }
@@ -645,17 +642,16 @@ Score negamax(chess::Board &board,
         static_eval_stack[ply] = node_static_eval;
     const bool improving = (ply >= 2 && ply <= MAX_PLY && node_static_eval >= static_eval_stack[ply - 2]);
 
-    // History-aware LMR adjustment for quiet moves. Positive history provides "relief" (smaller reductions),
-    // while negative history applies an extra penalty (larger reductions). Keep the shallow-depth safety clamp
-    // on negative adjustments because this engine often operates at practical depths <= 8.
+    // History-aware LMR adjustment for quiet moves.
+    // Keep this weaker than ordering: history should nudge reductions, not dominate them.
     const auto lmr_history_adjust = [&](int hist_score_raw) -> int
     {
         if (hist_score_raw == 0)
             return 0;
         const double mult = (hist_score_raw > 0) ? config.lmr_history_relief_mult : config.lmr_history_penalty_mult;
-        int hist_adj = static_cast<int>((mult * static_cast<double>(hist_score_raw)) / 3593.0);
-        if (depth <= 8)
-            hist_adj = std::max(hist_adj, -1);
+        int hist_adj = static_cast<int>(std::llround((mult * static_cast<double>(hist_score_raw)) / 7186.0));
+        const int cap = (depth <= 8) ? 1 : ((depth <= 14) ? 2 : 3);
+        hist_adj = std::clamp(hist_adj, -cap, cap);
         return hist_adj;
     };
 
@@ -914,6 +910,8 @@ Score negamax(chess::Board &board,
         int lmr_hist_score = 0; // local cont(1..2)+main hist for LMR/pruning
         int main_hist_scaled = 0;
         int cont12_scaled = 0;
+        int lmr_main_hist_scaled = 0;
+        int lmr_cont12_scaled = 0;
         if (is_quiet && !gives_chk && (config.use_history_heuristic || config.use_continuation_history))
         {
             const int s = stm_index(board);
@@ -975,9 +973,12 @@ Score negamax(chess::Board &board,
             const int cont_scaled = static_cast<int>((static_cast<std::int64_t>(config.continuation_ordering_mult) * cont_score) / 2);
 
             move_hist_score = cont_scaled + main_hist_scaled;
-            // LMR/history-adjustment should be driven primarily by the local (ply-1..2) continuation signal.
-            // Deeper continuation (ply-3..ply-6) is useful for ordering, but is noisier and can overdrive reductions at shallow depths.
-            lmr_hist_score = cont12_scaled + main_hist_scaled;
+            // LMR/history-adjustment should be narrower than ordering.
+            // Use only local continuation (ply-1..2), and downweight both continuation and main history
+            // so this second history path does not double-count too aggressively.
+            lmr_main_hist_scaled = main_hist_scaled / 2;
+            lmr_cont12_scaled = cont12_scaled / 2;
+            lmr_hist_score = lmr_cont12_scaled + lmr_main_hist_scaled;
         }
         // Shallow forward pruning gates
         //  - Move-count / LMP:            futility_move_count(improving, depth)

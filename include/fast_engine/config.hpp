@@ -27,8 +27,8 @@ namespace fast_engine
 
         // History/continuation ordering multipliers (dimensionless). UCI options expose these as integers 0..300,
         // interpreted as (value / 100.0). Example: 150 -> 1.5x.
-        double history_ordering_mult = 0.96;      // default 2.0x (UCI default 200)
-        double continuation_ordering_mult = 1.52; // default 2.0x (UCI default 200)
+        double history_ordering_mult = 0.96;
+        double continuation_ordering_mult = 1.00;
         int capture_history_ordering_mult = 1;    // base multiplier for capture history
 
         // History update scheme tuning knobs (dimensionless). Exposed as UCI ints 0..300, interpreted as (value / 100.0).
@@ -43,17 +43,12 @@ namespace fast_engine
 
         // LMR history tuning knobs (dimensionless). Exposed as UCI ints 0..300, interpreted as (value / 100.0).
         // These affect only the history-based LMR adjustment.
-        double lmr_history_relief_mult = 2.25;  // default 1.0x (UCI default 100)
-        double lmr_history_penalty_mult = 2.25; // default 1.0x (UCI default 100)
+        double lmr_history_relief_mult = 1.25;
+        double lmr_history_penalty_mult = 1.25;
 
         // LMR base/slope tuning knobs (dimensionless). Exposed as UCI ints 0..300, interpreted as (value / 100.0).
         double lmr_base_mult = 2.25;  // default 1.0x (UCI default 100)
         double lmr_slope_mult = 0.5; // default 1.0x (UCI default 100)
-
-        // Move ordering bonuses (internal ordering score units; not centipawns).
-        int killer_bonus_1 = 90000;
-        int killer_bonus_2 = 80000;
-        int counter_move_bonus = 10000;
 
         bool use_null_move_pruning = true;
 
@@ -94,10 +89,12 @@ namespace fast_engine
             // Midgame positional.
             double space = 1.00;
             double outposts = 1.00;
+            double closedness = 0.50;
 
             // Pawn play.
             double pawn_structure = 1.00;
             double passed_pawns = 1.50; // matches prior: passed_pawn_term * 1.5
+            double complexity = 0.0;
 
             // Pieces.
             double rook_activity = 1.00;
@@ -105,6 +102,7 @@ namespace fast_engine
 
             // Tactical.
             double threats = 0.50;
+            double queen_vulnerability = 0.00;
 
             // King safety.
             double king_safety = 1.00;

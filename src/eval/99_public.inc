@@ -41,6 +41,7 @@ Score evaluate_white_pov_with_config(const Board &board,
     // phase_0_256 is an endgame-progress metric: 0 = opening, 256 = king-only endgame.
     const double eg_weight = static_cast<double>(phase_0_256) / 256.0;
     const double mg_weight = 1.0 - eg_weight;
+    EvalInfo info = make_eval_info(board);
 
     // IMPORTANT: all *term* functions here are expressed in pawn units.
     // Keep the internal accumulator in pawn units and convert only once at the end.
@@ -62,7 +63,7 @@ Score evaluate_white_pov_with_config(const Board &board,
     // 3) Mobility.
     if (cfg.eval.mobility != 0.0)
     {
-        const double mob_term = mobility_term_white_minus_black(board);
+        const double mob_term = mobility_term_white_minus_black(board, mg_weight, eg_weight, info);
         score += cfg.eval.mobility * mob_term;
     }
 
@@ -73,15 +74,24 @@ Score evaluate_white_pov_with_config(const Board &board,
         score += cfg.eval.xray_pins * xr;
     }
 
-    // Shared attack maps (chess.hpp fast attack generation). Reused by space + threats.
-    AttackMaps attack_maps;
-    build_attack_maps(board, attack_maps);
+    const bool need_attack_maps = (cfg.eval.space != 0.0) ||
+                                  (cfg.eval.threats != 0.0) ||
+                                  (cfg.eval.queen_vulnerability != 0.0);
+    const AttackMaps *attack_maps = nullptr;
+    if (need_attack_maps)
+        attack_maps = &ensure_attack_maps(board, info);
 
     // 3a) Space advantage (midgame-only).
-    score += cfg.eval.space * space_term_white_minus_black_from_maps(board, attack_maps, mg_weight);
+    if (cfg.eval.space != 0.0)
+        score += cfg.eval.space * space_term_white_minus_black_from_maps(board, *attack_maps, mg_weight, info);
 
     // 3b) Minor-piece outposts (pawn-supported, not pawn-chaseable).
     score += cfg.eval.outposts * mg_weight * outpost_term_white_minus_black(board);
+
+    // 3d) Global closedness / openness. Bias knights up and rooks down in closed
+    // structures, and the reverse in open ones.
+    if (cfg.eval.closedness != 0.0)
+        score += cfg.eval.closedness * closedness_term_white_minus_black(board, mat, mg_weight, info);
 
     // 4a) Pawn structure.
     score += cfg.eval.pawn_structure * pawn_structure_term_white_minus_black(board, mg_weight, eg_weight);
@@ -92,21 +102,28 @@ Score evaluate_white_pov_with_config(const Board &board,
     // 4c) Rook activity (open/semi-open files + rook on 7th).
     if (ENABLE_ROOK_FILE_ACTIVITY && cfg.eval.rook_activity != 0.0)
     {
-        score += cfg.eval.rook_activity * rook_activity_term_white_minus_black(board, mg_weight, eg_weight);
+        score += cfg.eval.rook_activity * rook_activity_term_white_minus_black(board, mg_weight, eg_weight, info);
     }
 
     // 4d) Donna-style threats (attacked and undefended pieces).
     if (cfg.eval.threats != 0.0)
     {
-        const double thr = threats_term_white_minus_black_from_maps(board, attack_maps, mg_weight, eg_weight);
+        const double thr = threats_term_white_minus_black_from_maps(board, *attack_maps, mg_weight, eg_weight, info);
         score += cfg.eval.threats * thr;
+    }
+
+    // 4e) Queen vulnerability. Penalize exposed queens with poor safe mobility.
+    if (cfg.eval.queen_vulnerability != 0.0)
+    {
+        const double qv = queen_vulnerability_term_white_minus_black(board, *attack_maps, mg_weight, info);
+        score += cfg.eval.queen_vulnerability * qv;
     }
 
     // 5) King safety.
     if (cfg.eval.king_safety != 0.0)
     {
         // King-zone pressure remains untapered. The cover/storm component should be weighted toward the middlegame.
-        score += cfg.eval.king_safety * king_safety_term_white_minus_black(board, mg_weight, mat);
+        score += cfg.eval.king_safety * king_safety_term_white_minus_black(board, mg_weight, mat, info);
     }
 
     // 6) Bishop pair + bad bishop.
@@ -134,6 +151,19 @@ Score evaluate_white_pov_with_config(const Board &board,
         const double sf = endgame_scale_factor_white_pov(board, score);
         const double factor = mg_weight + eg_weight * sf;
         score *= factor;
+    }
+
+    // 8b) Generic complexity scaling: damp optimistic evals in low-material, drawish
+    // endgames that are hard to convert even when the static edge is real.
+    if (cfg.eval.complexity != 0.0 && phase_0_256 >= 96)
+    {
+        const double base_sf = complexity_scale_factor_white_pov(board, score, mat, info);
+        double tuned_sf = 1.0 + cfg.eval.complexity * (base_sf - 1.0);
+        if (tuned_sf < 0.0)
+            tuned_sf = 0.0;
+        if (tuned_sf > 1.0)
+            tuned_sf = 1.0;
+        score *= tuned_sf;
     }
 
     const Score result = pawns_to_cp(score);
