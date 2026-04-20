@@ -127,6 +127,56 @@ namespace fast_engine
         return pv.str();
     }
 
+    static chess::Move probe_root_tt_move(const chess::Board &board,
+                                          const TranspositionTable &tt)
+    {
+        const auto e = tt.probe(board.hash());
+        if (e && e->hasMove)
+            return e->bestMove;
+        return chess::Move::NO_MOVE;
+    }
+
+    static void reorder_root_moves(std::vector<RootMove> &root_moves,
+                                   chess::Move pv_move,
+                                   chess::Move tt_move,
+                                   bool use_last_scores)
+    {
+        if (root_moves.size() <= 1)
+            return;
+
+        std::stable_sort(root_moves.begin(), root_moves.end(),
+                         [&](const RootMove &a, const RootMove &b)
+                         {
+                             const bool a_pv = (pv_move != chess::Move::NO_MOVE && a.move == pv_move);
+                             const bool b_pv = (pv_move != chess::Move::NO_MOVE && b.move == pv_move);
+                             if (a_pv != b_pv)
+                                 return a_pv;
+
+                             const Score a_score = (use_last_scores && a.was_searched) ? a.last_score : a.previous_score;
+                             const Score b_score = (use_last_scores && b.was_searched) ? b.last_score : b.previous_score;
+                             if (a_score != b_score)
+                                 return a_score > b_score;
+
+                             const bool a_tt = (tt_move != chess::Move::NO_MOVE && a.move == tt_move);
+                             const bool b_tt = (tt_move != chess::Move::NO_MOVE && b.move == tt_move);
+                             if (a_tt != b_tt)
+                                 return a_tt;
+
+                             return false;
+                         });
+    }
+
+    static void commit_root_iteration(std::vector<RootMove> &root_moves)
+    {
+        for (RootMove &rm : root_moves)
+        {
+            if (rm.was_searched)
+                rm.previous_score = rm.last_score;
+            rm.was_searched = false;
+            rm.subtree_nodes = 0;
+        }
+    }
+
     Engine::Engine()
         : config_(),
           tt_()
@@ -336,6 +386,7 @@ namespace fast_engine
 
         bool have_prev = false;
         Score prev_score = 0;
+        std::vector<RootMove> root_moves;
 
         // Diagnostics: track how often the root PV first move changes late (depth >= 10).
         chess::Move prev_best_move_ge10 = chess::Move(chess::Move::NO_MOVE);
@@ -404,6 +455,7 @@ namespace fast_engine
                     use_quiescence,
                     true /*Use internal iterative deepening*/,
                     tt_,
+                    &root_moves,
                     iter_stats,
                     iter_best_move,
                     iter_best_score,
@@ -448,6 +500,11 @@ namespace fast_engine
                 if (!ok)
                     break;
 
+                reorder_root_moves(root_moves,
+                                   iter_best_move,
+                                   probe_root_tt_move(board, tt_),
+                                   /*use_last_scores=*/true);
+
                 if (iter_best_score <= alpha)
                 {
                     // fail-low: widen downward
@@ -488,6 +545,7 @@ namespace fast_engine
                     use_quiescence,
                     true /*Use internal iterative deepening*/,
                     tt_,
+                    &root_moves,
                     iter_stats,
                     iter_best_move,
                     iter_best_score,
@@ -526,6 +584,14 @@ namespace fast_engine
 
                 last_stats = iter_stats;
                 in_window = ok;
+
+                if (ok)
+                {
+                    reorder_root_moves(root_moves,
+                                       iter_best_move,
+                                       probe_root_tt_move(board, tt_),
+                                       /*use_last_scores=*/true);
+                }
             }
 
             if (!ok)
@@ -533,6 +599,12 @@ namespace fast_engine
                 // Keep best_move/best_score/has_best from the last completed iteration.
                 break;
             }
+
+            commit_root_iteration(root_moves);
+            reorder_root_moves(root_moves,
+                               iter_best_move,
+                               probe_root_tt_move(board, tt_),
+                               /*use_last_scores=*/false);
 
             // Successful search at this depth – remember deepest PV
             // Diagnostics: count late PV (first move) changes between consecutive completed iterations.

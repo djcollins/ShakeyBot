@@ -79,14 +79,7 @@ Score qsearch(chess::Board &board,
                 return 0;
             const chess::Move move = evasions[i];
             if (ply + 1 <= MAX_PLY)
-            {
-                move_stack[ply + 1] = move;
-                moved_pt_stack[ply + 1] = pt_index(board.at(move.from()));
-                prior_capture_stack[ply + 1] = capture_like_for_stack(board, move);
-                parent_move_count_stack[ply + 1] = i + 1;
-                tt_hit_stack[ply + 1] = false;
-                in_check_stack[ply + 1] = false;
-            }
+                set_search_stack_entry(ply + 1, board, move, i + 1);
             board.makeMove(move);
             const Score score = -qsearch(board, ply + 1, -beta, -alpha, stats, config, control);
             board.unmakeMove(move);
@@ -283,14 +276,7 @@ Score qsearch(chess::Board &board,
             }
         }
         if (ply + 1 <= MAX_PLY)
-        {
-            move_stack[ply + 1] = move;
-            moved_pt_stack[ply + 1] = pt_index(board.at(move.from()));
-            prior_capture_stack[ply + 1] = capture_like_for_stack(board, move);
-            parent_move_count_stack[ply + 1] = i + 1;
-            tt_hit_stack[ply + 1] = false;
-            in_check_stack[ply + 1] = false;
-        }
+            set_search_stack_entry(ply + 1, board, move, i + 1);
         board.makeMove(move);
         const Score score = -qsearch(board, ply + 1, -beta, -alpha, stats, config, control);
         board.unmakeMove(move);

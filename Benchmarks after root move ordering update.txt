@@ -1,0 +1,207 @@
+Benchmarks after root move ordering update
+
+ucinewgame
+position fen r1b1kb1r/p1pn1ppp/2p1P3/3p4/5B2/2N5/PqP1QPPP/R3KB1R w KQkq - 0 11
+go depth 15
+[TM] stm=w depth=15 wtime=-1 btime=-1 winc=0 binc=0 movestogo=-1 movetime=-1 soft=0 hard=0 overhead=20 maxDepthTimed=64 ponderOpt=0 goPonder=0 infinite=0
+info depth 1 score cp 258 nodes 46 time 8 nps 6129 pv e6d7
+info depth 2 score cp 258 nodes 96 time 8 nps 12202 pv e6d7 e8d7
+info depth 3 score cp 53 nodes 1862 time 10 nps 186213 pv e6d7 e8d7 e2g4
+info depth 4 score cp -39 nodes 4358 time 13 nps 335259 pv e6d7 e8d7 e2g4 d7e8 g4e2
+info depth 5 score cp -39 nodes 5754 time 15 nps 388744 pv e6d7 e8d7 e2g4 d7e8 g4e2
+info depth 6 score cp -217 nodes 13597 time 24 nps 575023 pv e6d7 e8d7 e2g4 d7e8 g4e2 f8e7 a1c1 b2c3
+info depth 7 score cp -253 nodes 19434 time 33 nps 595100 pv e6d7 e8d7 a1b1 b2c3 e2d2 c3d2 f4d2 f8c5 g2g3
+info depth 8 score cp -299 nodes 33693 time 62 nps 540703 pv e6d7 e8d7 a1b1 b2c3 e2d2 c3d2 f4d2 f8c5 a2a4 a7a5
+info depth 9 score cp -260 nodes 53821 time 96 nps 560044 pv e6d7 e8d7 e2g4 d7e8 g4e2 c8e6 a1b1 b2c3 e2d2 c3d2 e1d2 f8c5 f2f3
+info depth 10 score cp -302 nodes 121718 time 203 nps 599316 pv e6d7 e8d7 a1b1 b2c3 e2d2 c3d2 f4d2 f8c5 f1d3 h8e8 e1f1 g7g6 h2h4
+info depth 11 score cp -276 nodes 159119 time 265 nps 599560 pv e6d7 e8d7 a1b1 b2c3 e2d2 c3d2 e1d2 f8c5 f1d3 a7a5 f4e3 d7d6 c2c3
+info depth 12 score cp -283 nodes 260214 time 432 nps 602680 pv e6d7 e8d7 a1b1 b2c3 e2d2 c3d2 f4d2 f8c5 f1d3 h8e8 d2e3 c5e3 f2e3 e8e3 e1f2 e3e6
+info depth 13 score cp -297 nodes 466991 time 762 nps 612505 pv e6d7 e8d7 a1b1 b2c3 e2d2 c3d2 e1d2 a7a5 f1e2 f8c5 h1f1 h8e8 e2g4 d7d8 g4c8 d8c8
+info depth 14 score cp -309 nodes 762833 time 1204 nps 633450 pv e6d7 e8d7 a1b1 b2c3 e2d2 c3d2 e1d2 f8d6 f4g3 a7a5 f1e2 h8e8 e2g4 d7e7 h1e1 c8e6
+info depth 15 score cp -298 nodes 922398 time 1448 nps 636880 pv e6d7 e8d7 a1b1 b2c3 e2d2 c3d2 e1d2 a7a5 f1d3 f8b4 c2c3 b4d6 d2e3 c8a6 d3a6 a8a6
+[GO] depth=15 score=-298 nodes=922398 time=1.45s nps=636783.00 branch=2.50 is_mate=0 is_draw=0 tt_hits=250930 tt_misses=353835 tt_hit_rate=41.5% q10=7811 q10r=7 pvchg10=0 pvlast=0d badcapN=27336 badcapP=36875 badcapS=13412 badcapS_Mn=14540.36 badcapGN=48454 badcapG=67494 badcapG_Mn=73172.32 lmgC=163722 lmgM=636256 lmgAvg=3.89 razorAttempts=6 razorCutoffs=6
+bestmove e6d7
+
+
+ucinewgame
+position fen r1bq1rk1/ppppnpp1/7p/n7/2B1PN2/4PN2/PP4PP/R2Q1RK1 w - - 3 12
+go depth 15
+[TM] stm=w depth=15 wtime=-1 btime=-1 winc=0 binc=0 movestogo=-1 movetime=-1 soft=0 hard=0 overhead=20 maxDepthTimed=64 ponderOpt=0 goPonder=0 infinite=0
+info depth 1 score cp -99 nodes 88 time 0 nps 334855 pv c4d3
+info depth 2 score cp -190 nodes 365 time 1 nps 486342 pv c4d3 d7d6
+info depth 3 score cp -146 nodes 856 time 2 nps 455489 pv c4d3 a5c6 g1h1
+info depth 4 score cp -231 nodes 2334 time 4 nps 530925 pv c4d3 a5c6 g1h1 d7d6
+info depth 5 score cp -207 nodes 3093 time 6 nps 530668 pv c4d3 a5c6 g1h1 d7d6 a2a3
+info depth 6 score cp -227 nodes 4808 time 10 nps 501654 pv c4d3 a5c6 g1h1 d7d6 f4d5 a7a6
+info depth 7 score cp -200 nodes 7848 time 16 nps 478916 pv c4d3 a5c6 e4e5 d7d6 e5d6 d8d6 g1h1
+info depth 8 score cp -207 nodes 17088 time 36 nps 475204 pv c4d5 d7d6 e4e5 e7d5 f4d5 a5c6 e5d6 d8d6
+info depth 9 score cp -185 nodes 29284 time 60 nps 488336 pv c4b5 a7a6 b5e2 d7d6 e4e5 a5c6 e5d6 c7d6 g1h1
+info depth 10 score cp -185 nodes 40573 time 81 nps 503872 pv c4e2 a5c6 e4e5 d7d6 e5d6 c7d6 g1h1 c8f5 f3d4 f5e4
+info depth 11 score cp -174 nodes 58240 time 114 nps 511788 pv c4e2 a5c6 e4e5 d7d6 e5d6 c7d6 g1h1 a7a6 f3d4 d8b6 d1d2
+info depth 12 score cp -185 nodes 86901 time 164 nps 528900 pv c4e2 a5c6 e4e5 d7d6 e5d6 c7d6 g1h1 d8b6 d1d2 c8f5 f3d4 f5e4
+info depth 13 score cp -184 nodes 119953 time 220 nps 544105 pv c4e2 a5c6 e4e5 d7d6 e5d6 c7d6 g1h1 d8b6 d1d2 c8f5 f3d4 f5e4 d4c6
+info depth 14 score cp -196 nodes 202116 time 367 nps 550982 pv c4e2 a5c6 e4e5 d7d6 e5d6 c7d6 g1h1 d8b6 d1d2 c8f5 a1d1 f8c8 f3d4 c6d4
+info depth 15 score cp -179 nodes 302434 time 545 nps 555265 pv c4e2 a5c6 e4e5 d7d6 e5d6 c7d6 d1d2 d8b6 a1d1 c8f5 f3d4 f5e4 d4c6 e7c6 a2a3
+[GO] depth=15 score=-179 nodes=302434 time=0.54s nps=555060.00 branch=2.32 is_mate=0 is_draw=0 tt_hits=69247 tt_misses=163951 tt_hit_rate=29.7% q10=13217 q10r=19 pvchg10=0 pvlast=0d badcapN=12856 badcapP=19447 badcapS=7154 badcapS_Mn=23654.75 badcapGN=23826 badcapG=38484 badcapG_Mn=127247.60 lmgC=27115 lmgM=99741 lmgAvg=3.68 razorAttempts=27 razorCutoffs=27
+bestmove c4e2
+
+
+ucinewgame
+position fen r1b1r1k1/pp3ppp/5b2/3qn3/3pB1PP/5Q2/PPPN1P2/R1B1K2R w KQ - 5 15
+go depth 15
+[TM] stm=w depth=15 wtime=-1 btime=-1 winc=0 binc=0 movestogo=-1 movetime=-1 soft=0 hard=0 overhead=20 maxDepthTimed=64 ponderOpt=0 goPonder=0 infinite=0
+info depth 1 score cp 652 nodes 152 time 0 nps 468702 pv e4h7
+info depth 2 score cp 652 nodes 229 time 1 nps 420261 pv e4h7 g8h7
+info depth 3 score cp 652 nodes 358 time 1 nps 446718 pv e4h7 g8h7 f3d5
+info depth 4 score cp 629 nodes 1232 time 2 nps 616246 pv e4h7 g8h7 f3d5 e5c6
+info depth 5 score cp 587 nodes 2692 time 4 nps 612263 pv e4h7 g8h7 f3d5 e5g4 d2e4 h7g8
+info depth 6 score cp 409 nodes 8700 time 12 nps 750667 pv e4h7 g8h7 f3d5 e5d3 e1f1 e8e1 f1g2 d3f4 g2g3 f4d5
+info depth 7 score cp 381 nodes 11519 time 16 nps 724921 pv e4h7 g8h7 f3d5 e5d3 e1f1 e8e1 f1g2 d3f4 g2g3 f4d5 h1e1
+info depth 8 score cp 404 nodes 15185 time 22 nps 697151 pv e4h7 g8h7 f3d5 e5d3 e1f1 e8e1 f1g2 d3f4 g2g3 f4d5 h1e1 b7b5
+info depth 9 score cp 416 nodes 21034 time 31 nps 687208 pv e4h7 g8h7 f3d5 e5d3 e1f1 e8e1 f1g2 d3f4 g2g3 f4d5 h1e1 c8d7 g4g5
+info depth 10 score cp 383 nodes 28433 time 43 nps 665955 pv e4h7 g8h7 f3d5 e5d3 e1f1 e8e1 f1g2 d3f4 g2g3 f4d5 h1e1 c8d7 g4g5 f6e7
+info depth 11 score cp 438 nodes 48211 time 73 nps 663513 pv e4h7 g8h7 f3d5 e5d3 e1f1 e8e1 f1g2 d3f4 g2g3 f4d5 h1e1 c8d7 g4g5 f6e7 d2f3
+info depth 12 score cp 371 nodes 78395 time 118 nps 665395 pv e4h7 g8h7 f3d5 e5d3 e1f1 e8e1 f1g2 d3f4 g2g3 f4d5 h1e1 c8d7 g4g5 f6e7 d2f3 e7c5
+info depth 13 score cp 382 nodes 104429 time 157 nps 664284 pv e4h7 g8h7 f3d5 e5d3 e1f1 e8e1 f1g2 d3f4 g2g3 f4d5 h1e1 c8d7 g4g5 f6e7 d2f3 e7d6
+info depth 14 score cp 219 nodes 245619 time 398 nps 616925 pv e4h7 g8h7 f3d5 e5d3 e1f1 e8e1 f1g2 d3f4 g2f3 f4d5 h1e1 d5b4 d2e4 b4c2 e4f6 h7g6
+info depth 15 score cp 207 nodes 356027 time 589 nps 604477 pv e4h7 g8h7 f3d5 e5d3 e1f1 e8e1 f1g2 d3f4 g2g3 f4d5 h1e1 d5b4 a1b1 c8e6 c2c3 b4d3
+[GO] depth=15 score=207 nodes=356027 time=0.59s nps=604127.00 branch=2.34 is_mate=0 is_draw=0 tt_hits=81914 tt_misses=168319 tt_hit_rate=32.7% q10=9823 q10r=6 pvchg10=0 pvlast=0d badcapN=12579 badcapP=18276 badcapS=11533 badcapS_Mn=32393.61 badcapGN=25271 badcapG=37819 badcapG_Mn=106225.09 lmgC=40086 lmgM=158928 lmgAvg=3.96 razorAttempts=45 razorCutoffs=45
+bestmove e4h7
+
+
+ucinewgame
+position fen 6k1/1p3rpp/p1p3q1/P1Pr4/3PbP2/1Q2R1BP/6P1/3R2K1 b - - 1 27
+go depth 15
+[TM] stm=b depth=15 wtime=-1 btime=-1 winc=0 binc=0 movestogo=-1 movetime=-1 soft=0 hard=0 overhead=20 maxDepthTimed=64 ponderOpt=0 goPonder=0 infinite=0
+info depth 1 score cp -25 nodes 54 time 0 nps 324714 pv e4c2
+info depth 2 score cp -29 nodes 350 time 1 nps 451788 pv e4c2 e3e8
+info depth 3 score cp 63 nodes 1479 time 2 nps 615942 pv e4c2 f4f5 g6f5
+info depth 4 score cp 83 nodes 1929 time 3 nps 582991 pv e4c2 f4f5 g6f5 e3e8
+info depth 5 score cp 288 nodes 4599 time 6 nps 734383 pv e4c2 f4f5 g6f5 e3e8 f7f8 e8f8 g8f8 g3d6
+info depth 6 score cp 288 nodes 6353 time 9 nps 703731 pv e4c2 f4f5 g6f5 e3e8 f7f8 e8f8 g8f8 g3d6 d5d6 b3b7
+info depth 7 score cp 375 nodes 9387 time 13 nps 715833 pv e4c2 f4f5 g6f5 e3e8 f7f8 e8f8 g8f8 g3d6 d5d6 b3b7 d6e6
+info depth 8 score cp 348 nodes 13375 time 19 nps 710922 pv e4c2 b3d5 c6d5 d1a1 h7h6 a1c1 c2e4 c1c3
+info depth 9 score cp 364 nodes 22804 time 34 nps 667950 pv e4c2 e3e8 f7f8 e8f8 g8f8 b3b7 c2d1 g3f2 d1e2 g2g4 g6e8 f4f5 e2b5
+info depth 10 score cp 384 nodes 30014 time 48 nps 631827 pv e4c2 e3e8 f7f8 e8f8 g8f8 b3b7 c2d1 g3f2 d1e2 g2g4 g6f6 b7c8 d5d8 c8c7 d8d4
+info depth 11 score cp 378 nodes 39377 time 64 nps 614610 pv e4c2 b3d5 c6d5 d1d2 f7f8 d2f2 c2e4 e3b3 g6f6 f2d2 f6f7
+info depth 12 score cp 385 nodes 56968 time 99 nps 577300 pv e4c2 b3d5 c6d5 d1d2 h7h6 g1h2 c2e4 h2g1 g8h7 d2b2 g6f5 e3e4 d5e4
+info depth 13 score cp 376 nodes 90061 time 154 nps 583621 pv e4c2 e3e8 f7f8 e8f8 g8f8 b3b7 c2d1 g3f2 d1e2 g2g4 g6e8 f4f5 e2b5 b7c7 d5d7 c7f4
+info depth 14 score cp 377 nodes 110808 time 195 nps 567353 pv e4c2 e3e8 f7f8 e8f8 g8f8 b3b7 c2d1 g3f2 d1e2 g2g4 g6e8 f4f5 e2b5 b7c7 d5d7 c7f4
+info depth 15 score cp 378 nodes 137200 time 241 nps 570081 pv e4c2 e3e8 f7f8 e8f8 g8f8 b3b7 c2d1 g3f2 d1e2 g2g4 g6e8 f4f5 e2b5 b7c7 d5d7 c7f4
+[GO] depth=15 score=378 nodes=137200 time=0.24s nps=569730.00 branch=2.20 is_mate=0 is_draw=0 tt_hits=44804 tt_misses=54509 tt_hit_rate=45.1% q10=2192 q10r=4 pvchg10=0 pvlast=0d badcapN=4587 badcapP=8531 badcapS=2390 badcapS_Mn=17419.83 badcapGN=12947 badcapG=25478 badcapG_Mn=185699.71 lmgC=15206 lmgM=50935 lmgAvg=3.35 razorAttempts=50 razorCutoffs=50
+bestmove e4c2
+
+
+ucinewgame
+position fen k3rr2/p1p5/1qbb2pp/2N5/PP5Q/2P1B3/6PP/R3R1K1 b - - 0 24
+go depth 15
+[TM] stm=b depth=15 wtime=-1 btime=-1 winc=0 binc=0 movestogo=-1 movetime=-1 soft=0 hard=0 overhead=20 maxDepthTimed=64 ponderOpt=0 goPonder=0 infinite=0
+info depth 1 score cp -266 nodes 274 time 1 nps 513975 pv h6h5
+info depth 2 score cp -305 nodes 1190 time 2 nps 592748 pv e8e3 e1e3
+info depth 3 score cp -305 nodes 2337 time 4 nps 624265 pv e8e3 e1e3 d6c5
+info depth 4 score cp -305 nodes 4133 time 7 nps 621672 pv e8e3 e1e3 d6c5 b4c5
+info depth 5 score cp -278 nodes 7055 time 12 nps 567127 pv e8e3 e1e3 d6c5 b4c5 b6b2
+info depth 6 score cp 272 nodes 9285 time 15 nps 618711 pv e8e3 e1e3 d6c5 b4c5 b6b2 h4g3
+info depth 7 score cp 284 nodes 10443 time 16 nps 640306 pv e8e3 e1e3 d6c5 b4c5 b6b2 h4g3 b2a1
+info depth 8 score cp 340 nodes 14287 time 22 nps 658903 pv e8e3 e1e3 d6c5 b4c5 b6b2 h4g3 b2a1 e3e1 a1a3
+info depth 9 score cp 380 nodes 24151 time 37 nps 649489 pv e8e3 h4h6 e3e1 a1e1 d6c5 b4c5 b6c5 h6e3 c5e3 e1e3 c6a4 e3e7 a8b7 e7e4
+info depth 10 score cp 395 nodes 36343 time 55 nps 662988 pv e8e3 e1e3 d6c5 b4c5 b6b2 h4g3 b2a1 e3e1 a1a3 g3e3 c6a4
+info depth 11 score cp 394 nodes 48178 time 71 nps 679055 pv e8e3 e1e3 d6c5 b4c5 b6b2 h4g3 b2a1 e3e1 a1a3 g3e3 a8b7 e1b1
+info depth 12 score cp 395 nodes 66134 time 99 nps 664708 pv e8e3 e1e3 d6c5 b4c5 b6b2 h4g3 b2a1 e3e1 a1a3 g3e3 c6a4 e3h6 a3c5 h6e3 c5e3 e1e3
+info depth 13 score cp 395 nodes 80044 time 119 nps 675391 pv e8e3 e1e3 d6c5 b4c5 b6b2 h4g3 b2a1 e3e1 a1a3 g3e3 c6a4 e3h6 a3c5 h6e3 c5e3 e1e3
+info depth 14 score cp 405 nodes 109666 time 158 nps 693292 pv e8e3 e1e3 d6c5 b4c5 b6b2 h4g3 b2a1 e3e1 a1a3 g3e3 c6a4 e3h6 a3c5 g1h1 a4b3 e1b1
+info depth 15 score cp 412 nodes 150774 time 217 nps 696079 pv e8e3 e1e3 d6c5 b4c5 b6b2 h4g3 b2a1 e3e1 a1b2 h2h4 c6a4 g1h2 a4c2 g3c7 b2c3 c7e7
+[GO] depth=15 score=412 nodes=150774 time=0.22s nps=694967.00 branch=2.21 is_mate=0 is_draw=0 tt_hits=35270 tt_misses=57062 tt_hit_rate=38.2% q10=4382 q10r=0 pvchg10=0 pvlast=0d badcapN=4528 badcapP=11213 badcapS=5790 badcapS_Mn=38401.85 badcapGN=8656 badcapG=20538 badcapG_Mn=136217.12 lmgC=26315 lmgM=75364 lmgAvg=2.86 razorAttempts=0 razorCutoffs=0
+bestmove e8e3
+
+
+ucinewgame
+position fen 5k2/pprq1ppp/4pb1B/3n4/P5QP/1P3B2/5PP1/3R2K1 w - - 1 26
+go depth 15
+[TM] stm=w depth=15 wtime=-1 btime=-1 winc=0 binc=0 movestogo=-1 movetime=-1 soft=0 hard=0 overhead=20 maxDepthTimed=64 ponderOpt=0 goPonder=0 infinite=0
+info depth 1 score cp -141 nodes 140 time 0 nps 309598 pv f3d5
+info depth 2 score cp -74 nodes 949 time 2 nps 462498 pv h6e3 h7h5
+info depth 3 score cp -74 nodes 1824 time 4 nps 443882 pv h6e3 h7h5 g4h5
+info depth 4 score cp -93 nodes 5084 time 10 nps 516819 pv h6e3 h7h5 g4g3 c7c3
+info depth 5 score cp -34 nodes 8621 time 15 nps 594027 pv h6e3 d7d8 e3a7 f6h4 f3d5
+info depth 6 score cp -101 nodes 15660 time 25 nps 626408 pv h6g5 f6g5 h4g5 d7d6 f3d5 e6d5
+info depth 7 score cp -47 nodes 21063 time 32 nps 656064 pv h6g5 f6g5 h4g5 d7d8 f3d5 e6d5 g4f5
+info depth 8 score cp -38 nodes 29968 time 47 nps 639116 pv h6f4 e6e5 g4d7 c7d7 f4e5 f6e5 f3d5 a7a5
+info depth 9 score cp 18 nodes 36309 time 57 nps 635355 pv h6f4 e6e5 g4d7 c7d7 f4e5 f6e5 f3d5 a7a5 g2g3
+info depth 10 score cp 27 nodes 43961 time 69 nps 635504 pv h6f4 e6e5 g4d7 c7d7 f4e3 d5b6 e3c5 f8e8 d1d7 e8d7 g2g3
+info depth 11 score cp 59 nodes 55428 time 88 nps 632276 pv h6f4 e6e5 g4d7 c7d7 f4e3 d5b6 d1d7 b6d7 e3a7 f6h4 f3b7
+info depth 12 score cp 36 nodes 90842 time 146 nps 621065 pv h6f4 e6e5 g4d7 c7d7 f4e3 d5b6 d1d7 b6d7 e3a7 f6h4 g2g3 h4g5
+info depth 13 score cp 63 nodes 118330 time 193 nps 612620 pv h6f4 e6e5 g4d7 c7d7 f4e3 d5b6 d1d7 b6d7 e3a7 f6h4 f3b7 h4g5 b7c6
+info depth 14 score cp 52 nodes 175343 time 286 nps 613502 pv h6f4 e6e5 f4e5 f6e5 g4h5 d5f6 h5e5 d7e7 e5a5 b7b6 a5d2 g7g6 g2g4 e7a3
+info depth 15 score cp 50 nodes 261059 time 419 nps 623414 pv h6f4 e6e5 g4d7 c7d7 f4e3 d5b6 d1d7 b6d7 f3b7 f6h4 g2g3 h4e7 e3a7 e7c5 b7c6
+[GO] depth=15 score=50 nodes=261059 time=0.42s nps=623060.00 branch=2.30 is_mate=0 is_draw=0 tt_hits=66672 tt_misses=124836 tt_hit_rate=34.8% q10=5129 q10r=4 pvchg10=0 pvlast=0d badcapN=10365 badcapP=15454 badcapS=8232 badcapS_Mn=31533.10 badcapGN=21105 badcapG=35261 badcapG_Mn=135069.08 lmgC=24280 lmgM=88661 lmgAvg=3.65 razorAttempts=115 razorCutoffs=115
+bestmove h6f4
+
+
+ucinewgame
+position fen 8/pp3p2/2p3p1/3k4/5PPP/P7/5K2/8 w - - 1 37
+go depth 15
+[TM] stm=w depth=15 wtime=-1 btime=-1 winc=0 binc=0 movestogo=-1 movetime=-1 soft=0 hard=0 overhead=20 maxDepthTimed=64 ponderOpt=0 goPonder=0 infinite=0
+info depth 1 score cp -145 nodes 14 time 0 nps 149413 pv f2e3
+info depth 2 score cp -167 nodes 57 time 0 nps 166862 pv f2e3 a7a6
+info depth 3 score cp -171 nodes 360 time 1 nps 345688 pv f2e3 b7b5 e3d3
+info depth 4 score cp -186 nodes 853 time 2 nps 450989 pv f2f3 f7f5 g4f5 g6f5
+info depth 5 score cp -186 nodes 1714 time 4 nps 447391 pv f2e3 b7b5 e3f3 a7a6 f3e3
+info depth 6 score cp -200 nodes 2341 time 6 nps 416030 pv f2e3 b7b5 e3f3 a7a6 f3e3 c6c5
+info depth 7 score cp -200 nodes 3671 time 9 nps 417377 pv f2f3 b7b5 f3e3 a7a6 e3d3 c6c5 d3e3
+info depth 8 score cp -200 nodes 7335 time 19 nps 390719 pv h4h5 g6h5 g4h5 b7b5 f2e3 a7a6 h5h6 c6c5
+info depth 9 score cp -184 nodes 21476 time 40 nps 533837 pv f2f3 b7b5 h4h5 g6h5 g4h5 c6c5 h5h6 c5c4 h6h7
+info depth 10 score cp -190 nodes 41887 time 78 nps 540043 pv f2f3 d5e6 f3e3 c6c5 f4f5 g6f5 g4g5 e6e5 h4h5 b7b5 e3f3
+info depth 11 score cp -201 nodes 59763 time 105 nps 568040 pv f2f3 d5e6 f3e3 c6c5 a3a4 b7b6 a4a5 b6a5 e3d3 e6d5 d3c3
+info depth 12 score cp -195 nodes 89401 time 155 nps 577758 pv f2f3 d5e6 f3e4 c6c5 h4h5 g6h5 g4h5 c5c4 h5h6 f7f5 e4e3 b7b5 h6h7 b5b4 h7h8q
+info depth 13 score cp -179 nodes 141762 time 237 nps 597718 pv f2f3 d5e6 f4f5 e6e5 f5g6 f7g6 f3e3 b7b6 a3a4 a7a6 a4a5 b6b5 e3d3
+info depth 14 score cp -198 nodes 171411 time 280 nps 612531 pv f2f3 b7b6 h4h5 g6h5 g4h5 d5e6 h5h6 e6f6 f4f5 c6c5 f3e4 a7a6 h6h7 f6g7
+info depth 15 score cp -199 nodes 194923 time 309 nps 631443 pv f2f3 b7b6 h4h5 g6h5 g4h5 d5e6 h5h6 e6f6 f4f5 c6c5 f3e4 a7a6 e4f4 c5c4 h6h7 c4c3
+[GO] depth=15 score=-199 nodes=194923 time=0.31s nps=631112.00 branch=2.25 is_mate=0 is_draw=0 tt_hits=81164 tt_misses=91590 tt_hit_rate=47.0% q10=1511 q10r=39 pvchg10=0 pvlast=0d badcapN=818 badcapP=826 badcapS=826 badcapS_Mn=4237.57 badcapGN=2120 badcapG=2154 badcapG_Mn=11050.52 lmgC=3353 lmgM=18475 lmgAvg=5.51 razorAttempts=0 razorCutoffs=0
+bestmove f2f3
+
+
+ucinewgame
+position fen 5kb1/8/8/1K6/1P6/P7/8/8 w - - 3 59
+go depth 15
+[TM] stm=w depth=15 wtime=-1 btime=-1 winc=0 binc=0 movestogo=-1 movetime=-1 soft=0 hard=0 overhead=20 maxDepthTimed=64 ponderOpt=0 goPonder=0 infinite=0
+info depth 1 score cp -42 nodes 10 time 0 nps 215054 pv b5c6
+info depth 2 score cp -79 nodes 39 time 0 nps 179146 pv b5c6 f8e7
+info depth 3 score cp -45 nodes 175 time 1 nps 311333 pv a3a4 f8e7 a4a5
+info depth 4 score cp -84 nodes 286 time 1 nps 346667 pv a3a4 f8e7 a4a5 e7d6
+info depth 5 score cp -47 nodes 918 time 38 nps 24165 pv b5c5 f8e7 a3a4 g8e6 b4b5
+info depth 6 score cp -55 nodes 1416 time 39 nps 36344 pv a3a4 f8e7 b5c6 g8e6 a4a5 e7f6
+info depth 7 score cp -42 nodes 2893 time 42 nps 69586 pv b5c5 g8b3 b4b5 f8e7 b5b6 e7e6 c5b4
+info depth 8 score cp -38 nodes 5198 time 45 nps 116294 pv a3a4 f8e7 b5c6 g8h7 b4b5 h7e4 c6c5 e7e6 a4a5
+info depth 9 score cp 14 nodes 18504 time 58 nps 318663 pv a3a4 f8f7 a4a5 f7e6 b5c5 g8h7 b4b5 h7e4 a5a6
+info depth 10 score cp 10 nodes 20482 time 61 nps 337831 pv a3a4 f8f7 a4a5 f7e6 b5c5 g8h7 b4b5 h7e4 a5a6 e6e5
+info depth 11 score cp 26 nodes 30990 time 72 nps 432189 pv a3a4 f8f7 a4a5 f7e6 b5c5 g8h7 b4b5 e6e5 a5a6 h7d3 c5c6
+info depth 12 score cp 9 nodes 37967 time 80 nps 472424 pv a3a4 f8f7 a4a5 f7e6 b5c5 g8h7 b4b5 e6e5 a5a6 h7d3 c5c6 d3e4
+info depth 13 score cp 25 nodes 55209 time 100 nps 553173 pv a3a4 f8e7 b5c5 e7d7 a4a5 d7c7 a5a6 c7b8 b4b5 b8a7 c5c6 g8b3 c6c7 b3e6
+info depth 14 score cp 15 nodes 94998 time 141 nps 672434 pv a3a4 f8e7 b5c6 e7d8 b4b5 g8e6 b5b6 e6d7 c6d6 d7c8 d6c6
+info depth 15 score cp 15 nodes 104534 time 151 nps 691716 pv a3a4 f8e7 b5c6 e7d8 b4b5 g8e6 b5b6 e6d7 c6d6 d7c8 d6c6
+[GO] depth=15 score=15 nodes=104534 time=0.15s nps=691129.00 branch=2.16 is_mate=0 is_draw=0 tt_hits=58582 tt_misses=37720 tt_hit_rate=60.8% q10=457 q10r=36 pvchg10=0 pvlast=0d badcapN=420 badcapP=420 badcapS=361 badcapS_Mn=3453.42 badcapGN=632 badcapG=632 badcapG_Mn=6045.88 lmgC=2531 lmgM=10467 lmgAvg=4.14 razorAttempts=0 razorCutoffs=0
+bestmove a3a4
+
+
+ucinewgame
+position fen 8/1pp5/3p4/pP1Pp1k1/P1P2pPp/3P1P2/8/5K2 w - - 3 39
+go depth 15
+[TM] stm=w depth=15 wtime=-1 btime=-1 winc=0 binc=0 movestogo=-1 movetime=-1 soft=0 hard=0 overhead=20 maxDepthTimed=64 ponderOpt=0 goPonder=0 infinite=0
+info depth 1 score cp -14 nodes 11 time 0 nps 183946 pv f1g2
+info depth 2 score cp -21 nodes 39 time 0 nps 122372 pv f1g2 b7b6
+info depth 3 score cp 45 nodes 160 time 1 nps 226436 pv f1g2 b7b6 g2h3
+info depth 4 score cp 52 nodes 310 time 1 nps 288051 pv f1g2 g5g6 g2h3 g6g5
+info depth 5 score cp 18 nodes 590 time 2 nps 368497 pv f1g2 g5g6 g2h3 g6g5 b5b6
+info depth 6 score cp 18 nodes 902 time 2 nps 438354 pv f1g2 g5g6 g2h3 g6g5 b5b6 c7b6
+info depth 7 score cp 0 nodes 1326 time 3 nps 452344 pv f1g2 g5g6 g2h3 g6g5
+info depth 8 score cp 49 nodes 2594 time 5 nps 545807 pv f1g1 g5f6 g1h2 b7b6 h2g2 f6g6 g2h3 g6g5 d3d4 e5d4
+info depth 9 score cp 47 nodes 3785 time 6 nps 615908 pv f1g1 g5f6 g1g2 f6g6 g2h3 g6g5 c4c5 d6c5 h3g2 g5g6 g2h3 b7b6 h3h4 g6f6
+info depth 10 score cp 9 nodes 5575 time 8 nps 671420 pv f1g1 g5f6 g1g2 f6g6 g2h3 g6g5 h3h2 g5h6 g4g5 h6g5 h2g2 g5g6 g2h3 g6f5 h3h4 f5g6
+info depth 11 score cp 11 nodes 8117 time 11 nps 721332 pv f1g1 g5f6 g1h1 b7b6 h1h2 f6g6 h2g2 g6h6 g2h2 h6g7 h2h3 g7g6 h3h4 g6f6 h4h3 f6g6
+info depth 12 score cp 14 nodes 12548 time 17 nps 751274 pv b5b6 c7b6 f1g2 g5g6 g2h1 g6f6 h1h2 f6g6
+info depth 13 score cp 14 nodes 15112 time 20 nps 752893 pv b5b6 c7b6 f1g2 g5g6 g2h1 g6f6 h1h2 f6g6
+info depth 14 score cp 14 nodes 18068 time 24 nps 764673 pv b5b6 c7b6 f1g2 g5g6 g2h1 g6f6 h1h2 f6g6
+info depth 15 score cp 14 nodes 21599 time 28 nps 780917 pv b5b6 c7b6 f1g2 g5g6 g2h1 g6f6 h1h2 f6g6
+[GO] depth=15 score=14 nodes=21599 time=0.03s nps=773406.00 branch=1.95 is_mate=0 is_draw=0 tt_hits=13499 tt_misses=7321 tt_hit_rate=64.8% q10=646 q10r=4 pvchg10=1 pvlast=12d badcapN=30 badcapP=31 badcapS=27 badcapS_Mn=1250.06 badcapGN=61 badcapG=64 badcapG_Mn=2963.10 lmgC=190 lmgM=992 lmgAvg=5.22 razorAttempts=0 razorCutoffs=0
+bestmove b5b6

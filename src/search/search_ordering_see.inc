@@ -99,6 +99,13 @@ static int score_move(const chess::Board &board,
             const int t = move.to().index();
             score += config.history_ordering_mult * history_heur[stm][f][t];
         }
+        if (config.use_history_heuristic)
+        {
+            const int cur_pt = pt_index(board.at(move.from()));
+            const int cur_to = move.to().index();
+            if (cur_pt >= 0 && cur_to >= 0 && cur_to < 64)
+                score += probe_pawn_history(board, stm, cur_pt, cur_to);
+        }
         // Piece-aware continuation history (Raw sum; dist==5 downweighted; dist>=3 scaled by MULTI_CONT_SCALE_PCT)
         if (config.use_continuation_history && config.continuation_ordering_mult)
         {
@@ -114,10 +121,10 @@ static int score_move(const chess::Board &board,
                     if (ply < dist)
                         break;
                     const int idx = ply + 1 - dist;
-                    const chess::Move &prev = move_stack[idx];
+                    const chess::Move &prev = search_stack[idx].move;
                     if (prev == chess::Move::NO_MOVE)
                         continue;
-                    const int prev_pt = moved_pt_stack[idx];
+                    const int prev_pt = search_stack[idx].moved_pt;
                     if (prev_pt < 0 || prev_pt >= NUM_ORDER_PT)
                         continue;
                     const int prev_to = prev.to().index();

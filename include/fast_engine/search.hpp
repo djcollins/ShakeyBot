@@ -87,6 +87,9 @@ namespace fast_engine
     {
         chess::Move move{};
         Score last_score = 0;
+        Score previous_score = 0;
+        std::uint64_t subtree_nodes = 0;
+        bool was_searched = false;
     };
 
     /**
@@ -136,6 +139,7 @@ namespace fast_engine
                         bool use_quiescence,
                         bool allow_iid,
                         TranspositionTable &tt,
+                        std::vector<RootMove> *root_moves,
                         SearchStats &stats,
                         chess::Move &best_move_out,
                         Score &best_score_out,

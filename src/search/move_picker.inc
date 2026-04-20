@@ -173,8 +173,8 @@ struct MovePicker
         Move cm_candidate = Move::NO_MOVE;
         if (ply > 0)
         {
-            const Move pm = move_stack[ply];
-            if (pm != Move::NO_MOVE && !prior_capture_stack[ply])
+            const Move pm = search_stack[ply].move;
+            if (pm != Move::NO_MOVE && !search_stack[ply].prior_capture)
                 cm_candidate = counter_moves[stm][pm.from().index()][pm.to().index()];
         }
         bool have_cm = false;
@@ -331,8 +331,8 @@ struct MovePicker
         Move cm_candidate = Move::NO_MOVE;
         if (ply > 0)
         {
-            const Move pm = move_stack[ply];
-            if (pm != Move::NO_MOVE && !prior_capture_stack[ply])
+            const Move pm = search_stack[ply].move;
+            if (pm != Move::NO_MOVE && !search_stack[ply].prior_capture)
                 cm_candidate = counter_moves[stm][pm.from().index()][pm.to().index()];
         }
         bool have_cm = false;

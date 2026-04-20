@@ -179,21 +179,23 @@ struct ScopedExcludedMove
 static int history_heur[2][64][64];
 static int cont_history[2][64][64][64];
 static int capture_history[2][NUM_ORDER_PT][64][NUM_ORDER_PT];
-static chess::Move move_stack[MAX_PLY + 1];
-static int moved_pt_stack[MAX_PLY + 1]; // moved piece-type (index) for move_stack entries
+constexpr int PAWN_HISTORY_SIZE = 8192;
+static int pawn_history[2][PAWN_HISTORY_SIZE][NUM_ORDER_PT][64];
+struct SearchStackEntry
+{
+    chess::Move move = chess::Move::NO_MOVE;
+    int moved_pt = -1;
+    int parent_move_count = 0;
+    bool prior_capture = false;
+    bool tt_hit = false;
+    bool in_check = false;
+    Score static_eval = 0;
+};
+using SearchStack = std::array<SearchStackEntry, MAX_PLY + 1>;
+static SearchStack search_stack{};
 static chess::Move killer_moves[2][MAX_PLY + 1];
 static chess::Move counter_moves[2][64][64]; // [stm][prev_from][prev_to] -> quiet refutation move
                                              // [0]=primary, [1]=secondary (quiet beta-cutoff moves)
-// Per-ply bookkeeping used for learning hooks.
-// These are written alongside move_stack/moved_pt_stack and will be consumed by
-// upcoming Step-4 alignment chunks (TT fail-high learning and refutation penalties).
-static int parent_move_count_stack[MAX_PLY + 1]; // parent node moveCount when this ply was entered
-static bool prior_capture_stack[MAX_PLY + 1];    // whether the move that entered this ply was a capture
-static bool tt_hit_stack[MAX_PLY + 1];           // whether this ply had a TT hit (wired in later steps)
-static bool in_check_stack[MAX_PLY + 1];         // whether side-to-move is in check at this ply (wired in later steps)
-// Per-ply static evaluation cache (centipawns) used for "improving" signal .
-// Note: ply parity matters; "improving" compares ss->staticEval with (ss-2)->staticEval (same side to move).
-static Score static_eval_stack[MAX_PLY + 1];
 // LMR reduction tables (fixed-point scale 1024).
 static int lmr_reductions[MAX_PLY + 2];
 static std::once_flag lmr_tables_once;
@@ -293,6 +295,7 @@ static std::int16_t corr_hist[2][CORR_HIST_SIZE];
 //   - Main (butterfly) history: 7183
 //   - Capture history:         10692
 //   - Continuation history:    30000
+//   - Pawn history:            8192
 // This keeps main history from overpowering continuation in quiet move ordering.
 constexpr int MAIN_HISTORY_CAP = 7183;
 constexpr int MAIN_HISTORY_MIN = -MAIN_HISTORY_CAP;
@@ -300,6 +303,8 @@ constexpr int CONT_HISTORY_CAP = 30'000;
 constexpr int CONT_HISTORY_MIN = -CONT_HISTORY_CAP;
 constexpr int CAPTURE_HISTORY_CAP = 10'692;
 constexpr int CAPTURE_HISTORY_MIN = -CAPTURE_HISTORY_CAP;
+constexpr int PAWN_HISTORY_CAP = 8192;
+constexpr int PAWN_HISTORY_MIN = -PAWN_HISTORY_CAP;
 // Max searched quiet moves retained for end-of-node history malus updates.
 constexpr int MAX_QUIET_TRIED = 32;
 // Capture-history contribution in move ordering.
@@ -422,6 +427,10 @@ inline void update_capture_history_entry(int &v, int delta) noexcept
 {
     update_history_entry(v, delta, CAPTURE_HISTORY_CAP, CAPTURE_HISTORY_MIN);
 }
+inline void update_pawn_history_entry(int &v, int delta) noexcept
+{
+    update_history_entry(v, delta, PAWN_HISTORY_CAP, PAWN_HISTORY_MIN);
+}
 // Helpers:
 // These are intentionally board-independent: they operate on precomputed indices,
 // so future refutation/TT learning hooks can update continuation history without
@@ -443,6 +452,28 @@ inline void update_capture_history_entry(int &v, int delta) noexcept
 [[maybe_unused]] inline bool capture_like_for_stack(const chess::Board &board, const chess::Move &m) noexcept
 {
     return board.isCapture(m) || (m.typeOf() == chess::Move::ENPASSANT);
+}
+inline void clear_search_stack_entry(int ply) noexcept
+{
+    if (ply < 0 || ply > MAX_PLY)
+        return;
+    search_stack[ply] = SearchStackEntry{};
+}
+inline void set_search_stack_entry(int ply,
+                                   const chess::Board &board,
+                                   const chess::Move &move,
+                                   int parent_move_count) noexcept
+{
+    if (ply < 0 || ply > MAX_PLY)
+        return;
+    SearchStackEntry &ss = search_stack[ply];
+    const chess::Piece p = board.at(move.from());
+    ss.move = move;
+    ss.moved_pt = (p == chess::Piece::NONE) ? -1 : static_cast<int>(p.type());
+    ss.parent_move_count = parent_move_count;
+    ss.prior_capture = capture_like_for_stack(board, move);
+    ss.tt_hit = false;
+    ss.in_check = false;
 }
 [[maybe_unused]] inline bool capture_stage_for_stats(const chess::Board &board, const chess::Move &m) noexcept
 {
@@ -499,6 +530,28 @@ inline int corr_hist_index(const chess::Board &b) noexcept
     const std::uint64_t pw = b.pieces(chess::PieceType::PAWN, chess::Color::WHITE).getBits();
     const std::uint64_t pb = b.pieces(chess::PieceType::PAWN, chess::Color::BLACK).getBits();
     return static_cast<int>(pawn_key(pw, pb) & (CORR_HIST_SIZE - 1));
+}
+inline int pawn_history_index(const chess::Board &b) noexcept
+{
+    const std::uint64_t pw = b.pieces(chess::PieceType::PAWN, chess::Color::WHITE).getBits();
+    const std::uint64_t pb = b.pieces(chess::PieceType::PAWN, chess::Color::BLACK).getBits();
+    return static_cast<int>(pawn_key(pw, pb) & (PAWN_HISTORY_SIZE - 1));
+}
+inline int probe_pawn_history(const chess::Board &b, int stm, int piece_idx, int to) noexcept
+{
+    if (stm < 0 || stm > 1 || piece_idx < 0 || piece_idx >= NUM_ORDER_PT || to < 0 || to >= 64)
+        return 0;
+    return pawn_history[stm][pawn_history_index(b)][piece_idx][to];
+}
+inline void update_pawn_history_no_board(const chess::Board &b,
+                                         int stm,
+                                         int piece_idx,
+                                         int to,
+                                         int delta) noexcept
+{
+    if (stm < 0 || stm > 1 || piece_idx < 0 || piece_idx >= NUM_ORDER_PT || to < 0 || to >= 64)
+        return;
+    update_pawn_history_entry(pawn_history[stm][pawn_history_index(b)][piece_idx][to], delta);
 }
 inline Score corr_hist_probe(const chess::Board &b, const EngineConfig &cfg) noexcept
 {

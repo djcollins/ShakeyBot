@@ -1,10 +1,64 @@
 
+namespace
+{
+    void initialize_root_moves(chess::Board &board,
+                               const EngineConfig &config,
+                               TranspositionTable &tt,
+                               int depth,
+                               std::vector<RootMove> &root_moves)
+    {
+        root_moves.clear();
+
+        chess::Move root_tt_move{};
+        const chess::Move *root_tt_ptr = nullptr;
+        if (auto root_entry = tt.probe(board.hash()); root_entry && root_entry->hasMove)
+        {
+            root_tt_move = root_entry->bestMove;
+            root_tt_ptr = &root_tt_move;
+        }
+
+        MovePicker root_picker(board, root_tt_ptr, killer_moves[0][0], killer_moves[1][0], 0, depth, config);
+        root_moves.reserve(static_cast<std::size_t>(root_picker.total_legal_moves()));
+
+        chess::Move move{};
+        while (root_picker.next(move))
+        {
+            RootMove rm{};
+            rm.move = move;
+            root_moves.push_back(rm);
+        }
+    }
+
+    bool is_bad_root_capture(const chess::Board &board,
+                             const chess::Move &move,
+                             int depth,
+                             const EngineConfig &config)
+    {
+        if (move.typeOf() == chess::Move::PROMOTION)
+            return false;
+
+        const bool is_capture = board.isCapture(move) || (move.typeOf() == chess::Move::ENPASSANT);
+        if (!is_capture)
+            return false;
+
+        if (board.givesCheck(move) != chess::CheckType::NO_CHECK)
+            return false;
+
+        int thr = config.good_capture_see_threshold_cp;
+        if (thr == 0 && depth <= 2)
+            thr = 1;
+
+        return see_cp(board, move) < thr;
+    }
+} // namespace
+
 bool find_best_move(chess::Board &board,
                     int depth,
                     const EngineConfig &config,
                     bool use_quiescence,
                     bool allow_iid,
                     TranspositionTable &tt,
+                    std::vector<RootMove> *root_moves,
                     SearchStats &stats,
                     chess::Move &best_move_out,
                     Score &best_score_out,
@@ -15,30 +69,35 @@ bool find_best_move(chess::Board &board,
     (void)allow_iid;
     stats = SearchStats{};
     stats.depth_requested = depth;
-    move_stack[0] = chess::Move(chess::Move::NO_MOVE);
-    moved_pt_stack[0] = -1;
+    clear_search_stack_entry(0);
+
+    std::vector<RootMove> local_root_moves;
+    std::vector<RootMove> *root_moves_ptr = root_moves ? root_moves : &local_root_moves;
+    if (root_moves_ptr->empty())
+        initialize_root_moves(board, config, tt, depth, *root_moves_ptr);
+
+    for (RootMove &rm : *root_moves_ptr)
+    {
+        rm.was_searched = false;
+        rm.subtree_nodes = 0;
+    }
+
     // Root-level draw heuristics (50-move, insufficient material, repetition)
     if (board.isHalfMoveDraw() || board.isInsufficientMaterial() || board.isRepetition(2))
     {
         stats.is_draw = true;
     }
-    // Try TT-based ordering at the root as well.
-    chess::Move root_tt_move{};
-    const chess::Move *root_tt_ptr = nullptr;
+    stats.root_branching_factor = static_cast<int>(root_moves_ptr->size());
+    std::uint64_t root_badcap_count = 0;
+    for (const RootMove &rm : *root_moves_ptr)
     {
-        auto root_entry = tt.probe(board.hash());
-        if (root_entry && root_entry->hasMove)
-        {
-            root_tt_move = root_entry->bestMove;
-            root_tt_ptr = &root_tt_move;
-        }
+        if (is_bad_root_capture(board, rm.move, depth, config))
+            ++root_badcap_count;
     }
-    MovePicker root_picker(board, root_tt_ptr, killer_moves[0][0], killer_moves[1][0], 0, depth, config);
-    stats.root_branching_factor = root_picker.total_legal_moves();
-    if (root_picker.capture_stages_ready() && root_picker.bad_caps.count > 0)
+    if (root_badcap_count > 0)
     {
         ++stats.badcap_gen_nodes;
-        stats.badcap_generated += static_cast<std::uint64_t>(root_picker.bad_caps.count);
+        stats.badcap_generated += root_badcap_count;
     }
     if (stats.root_branching_factor == 0)
     {
@@ -61,7 +120,6 @@ bool find_best_move(chess::Board &board,
         return false;
     }
     bool badcap_stage_seen = false;
-    bool badcap_generated_recorded = root_picker.capture_stages_ready();
     // Score alpha = -INF; //replaced by windowed search
     // Score beta  =  INF;
     chess::Move best_move_local = chess::Move::NO_MOVE;
@@ -69,27 +127,19 @@ bool find_best_move(chess::Board &board,
     const int ply_root = 0;
     bool first = true;
     int rootMovesSearched = 0;
-    chess::Move move{};
-    for (int mi = 0; root_picker.next(move); ++mi)
+    for (std::size_t mi = 0; mi < root_moves_ptr->size(); ++mi)
     {
-        if (!badcap_generated_recorded && root_picker.capture_stages_ready())
-        {
-            badcap_generated_recorded = true;
-            if (root_picker.bad_caps.count > 0)
-            {
-                ++stats.badcap_gen_nodes;
-                stats.badcap_generated += static_cast<std::uint64_t>(root_picker.bad_caps.count);
-            }
-        }
         if (hard_stop(control, stats))
         {
             stats.has_best_move = false;
             return false;
         }
+        RootMove &root_move = (*root_moves_ptr)[mi];
+        const chess::Move move = root_move.move;
         const bool is_capture_root = board.isCapture(move) || (move.typeOf() == chess::Move::ENPASSANT);
         const bool is_promo_root = (move.typeOf() == chess::Move::PROMOTION);
         const bool is_quiet_root = (!is_capture_root && !is_promo_root);
-        const bool is_badcap_stage = (root_picker.stage == MovePicker::ST_BAD_CAP);
+        const bool is_badcap_stage = is_bad_root_capture(board, move, depth, config);
         if (is_badcap_stage)
         {
             ++stats.badcap_picked;
@@ -103,16 +153,12 @@ bool find_best_move(chess::Board &board,
             ++stats.quiet_searched_ge10;
         if (ply_root + 1 <= MAX_PLY)
         {
-            move_stack[ply_root + 1] = move;
-            moved_pt_stack[ply_root + 1] = pt_index(board.at(move.from()));
-            prior_capture_stack[ply_root + 1] = capture_like_for_stack(board, move);
             const int moveCount = ++rootMovesSearched;
-            parent_move_count_stack[ply_root + 1] = moveCount;
-            tt_hit_stack[ply_root + 1] = false;
-            in_check_stack[ply_root + 1] = false;
+            set_search_stack_entry(ply_root + 1, board, move, moveCount);
         }
         if (is_badcap_stage)
             ++stats.badcap_searched;
+        const std::uint64_t nodes_before = stats.nodes;
         board.makeMove(move);
         Score score;
         if (first)
@@ -165,10 +211,13 @@ bool find_best_move(chess::Board &board,
                     use_quiescence,
                     /*allow_iid=*/true,
                     &tt,
-                    control);
+                control);
             }
         }
         board.unmakeMove(move);
+        root_move.was_searched = true;
+        root_move.last_score = score;
+        root_move.subtree_nodes = stats.nodes - nodes_before;
         if (stats.stopped)
         {
             stats.has_best_move = false;
@@ -176,6 +225,8 @@ bool find_best_move(chess::Board &board,
         }
         if (score > best_score_local)
         {
+            if (best_move_local != chess::Move::NO_MOVE && move != best_move_local)
+                ++stats.best_move_changes;
             best_score_local = score;
             best_move_local = move;
         }
@@ -211,17 +262,13 @@ void reset_search_heuristics()
                 counter_moves[s][f][t] = none;
     std::memset(cont_history, 0, sizeof(cont_history));
     std::memset(capture_history, 0, sizeof(capture_history));
+    std::memset(pawn_history, 0, sizeof(pawn_history));
     std::memset(cont_history_pc, 0, sizeof(cont_history_pc));
     std::memset(corr_hist, 0, sizeof(corr_hist));
     for (int p = 0; p <= MAX_PLY; ++p)
     {
-        move_stack[p] = none;
-        moved_pt_stack[p] = -1;
+        clear_search_stack_entry(p);
         killer_moves[0][p] = none;
         killer_moves[1][p] = none;
-        prior_capture_stack[p] = false;
-        parent_move_count_stack[p] = 0;
-        tt_hit_stack[p] = false;
-        in_check_stack[p] = false;
     }
 }

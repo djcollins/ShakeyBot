@@ -174,11 +174,11 @@ Score negamax(chess::Board &board,
     if (tt_here)
     {
         key = board.hash();
-        tt_hit_stack[ply] = false;
+        search_stack[ply].tt_hit = false;
         if (auto entry_opt = tt_here->probe(key))
         {
             stats.tt_hits++;
-            tt_hit_stack[ply] = true;
+            search_stack[ply].tt_hit = true;
             const TTEntry &e = *entry_opt;
             const Score tt_value = from_tt_score(e.value, ply);
             have_tt_entry = true;
@@ -216,8 +216,8 @@ Score negamax(chess::Board &board,
                         // 2) apply a continuation penalty to early quiet parent moves (when applicable).
                         if (failHigh)
                         {
-                            // 1) Quiet TT move bonus (main history + continuation histories)
-                            if (e.hasMove && (config.use_history_heuristic || config.use_continuation_history))
+                            // 1) Quiet TT move bonus (quiet-history tables)
+                            if (e.hasMove)
                             {
                                 const chess::Move hm = e.bestMove;
                                 if (hm != chess::Move::NO_MOVE)
@@ -229,12 +229,15 @@ Score negamax(chess::Board &board,
                                         const int s = stm_index(board);
                                         const int f = hm.from().index();
                                         const int t = hm.to().index();
+                                        const int cur_pt = pt_index(board.at(hm.from()));
                                         const int bonus_tt = std::min(120 * depth - 75, 1241); // TO BE TUNED
                                         if (config.use_history_heuristic)
+                                        {
                                             update_main_history_entry(history_heur[s][f][t], bonus_tt);
+                                            update_pawn_history_no_board(board, s, cur_pt, t, bonus_tt);
+                                        }
                                         if (config.use_continuation_history && ply > 0)
                                         {
-                                            const int cur_pt = pt_index(board.at(hm.from()));
                                             const int cont_tt = (bonus_tt * 1004) / 1024; // TO BE TUNED
                                             static constexpr std::array<int, 7> W = {0, 1102, 658, 325, 535, 125, 475};
                                             const bool in_check_tt = board.inCheck();
@@ -246,14 +249,14 @@ Score negamax(chess::Board &board,
                                                 if (ply < i)
                                                     break;
                                                 const int idx = ply + 1 - i;
-                                                const chess::Move &prev = move_stack[idx];
+                                                const chess::Move &prev = search_stack[idx].move;
                                                 if (prev == chess::Move::NO_MOVE)
                                                     continue;
                                                 const int prev_to = prev.to().index();
                                                 const int delta = (cont_tt * W[i]) / 1024;
                                                 if (delta == 0)
                                                     continue;
-                                                const int prev_pt = moved_pt_stack[idx];
+                                                const int prev_pt = search_stack[idx].moved_pt;
                                                 update_continuation_no_board(s, prev_pt, prev_to, cur_pt, f, t, delta);
                                             }
                                         }
@@ -262,13 +265,13 @@ Score negamax(chess::Board &board,
                             }
                             // 2) Parent early quiet move continuation penalty
                             // Condition: prevSq != NONE, (ss-1)->moveCount <= 3, and !priorCapture
-                            if (config.use_continuation_history && ply > 0 && parent_move_count_stack[ply] <= 3 && !prior_capture_stack[ply])
+                            if (config.use_continuation_history && ply > 0 && search_stack[ply].parent_move_count <= 3 && !search_stack[ply].prior_capture)
                             {
-                                const chess::Move pm = move_stack[ply];
+                                const chess::Move pm = search_stack[ply].move;
                                 if (pm != chess::Move::NO_MOVE)
                                 {
                                     const int s_parent = 1 - stm_index(board);
-                                    const int cur_pt = moved_pt_stack[ply];
+                                    const int cur_pt = search_stack[ply].moved_pt;
                                     const int cur_from = pm.from().index();
                                     const int cur_to = pm.to().index();
                                     const int pen_base = -std::min(809 * (depth + 1) - 249, 3052);
@@ -279,11 +282,11 @@ Score negamax(chess::Board &board,
                                         const int idx = ply - i;
                                         if (idx < 0)
                                             break;
-                                        const chess::Move &prev = move_stack[idx];
+                                        const chess::Move &prev = search_stack[idx].move;
                                         if (prev == chess::Move::NO_MOVE)
                                             continue;
                                         const int prev_to = prev.to().index();
-                                        const int prev_pt = moved_pt_stack[idx];
+                                        const int prev_pt = search_stack[idx].moved_pt;
                                         const int delta = (pen_cont * W[i]) / 1024;
                                         if (delta == 0)
                                             continue;
@@ -300,7 +303,7 @@ Score negamax(chess::Board &board,
         else
         {
             stats.tt_misses++;
-            tt_hit_stack[ply] = false;
+            search_stack[ply].tt_hit = false;
         }
     }
     // Keep the original window for TT flagging and learning updates at node exit.
@@ -311,7 +314,7 @@ Score negamax(chess::Board &board,
     const bool in_check = board.inCheck();
     const Score node_corr_eval = corrected_eval_stm(board, config);
     if (0 <= ply && ply <= MAX_PLY)
-        in_check_stack[ply] = in_check;
+        search_stack[ply].in_check = in_check;
     // --- Razoring (very conservative; depth 2-3 only; null-window only) ---
     // Trigger: if static-eval is sufficiently below alpha, do a null-window qsearch probe.
     // If the probe also fails low, we can return early and avoid a full ply expansion.
@@ -350,7 +353,7 @@ Score negamax(chess::Board &board,
     // Applying it in PV / wide-window nodes (incl. root under aspiration) can cause tactical
     // oversights and unstable PV selection.
     const bool excluded_move_active = (g_excluded_move_ply == ply && g_excluded_move != chess::Move::NO_MOVE);
-    const bool prev_was_null = (ply > 0 && move_stack[ply] == chess::Move::NO_MOVE);
+    const bool prev_was_null = (ply > 0 && search_stack[ply].move == chess::Move::NO_MOVE);
     if (config.use_null_move_pruning && g_allow_null_move &&
         is_null_window &&
         ply > 0 &&
@@ -400,21 +403,11 @@ Score negamax(chess::Board &board,
                 int null_depth = depth - R;
                 if (null_depth < 0)
                     null_depth = 0;
-                // Null-move is not “a real move”: ensure the history stacks do not
-                // accidentally treat a stale move_stack/moved_pt_stack entry as the
+                // Null-move is not “a real move”: ensure the history stack does not
+                // accidentally treat a stale search-stack entry as the
                 // previous move inside the null-move search.
-                const chess::Move saved_null_stack_move = move_stack[ply + 1];
-                const int saved_null_stack_pt = moved_pt_stack[ply + 1];
-                const bool saved_null_stack_prior_cap = prior_capture_stack[ply + 1];
-                const int saved_null_stack_parent_mc = parent_move_count_stack[ply + 1];
-                const bool saved_null_stack_tt_hit = tt_hit_stack[ply + 1];
-                const bool saved_null_stack_in_check = in_check_stack[ply + 1];
-                move_stack[ply + 1] = chess::Move::NO_MOVE;
-                moved_pt_stack[ply + 1] = -1;
-                prior_capture_stack[ply + 1] = false;
-                parent_move_count_stack[ply + 1] = 0;
-                tt_hit_stack[ply + 1] = false;
-                in_check_stack[ply + 1] = false;
+                const SearchStackEntry saved_null_stack = search_stack[ply + 1];
+                clear_search_stack_entry(ply + 1);
                 board.makeNullMove();
                 const Score null_score = [&]()
                 {
@@ -434,12 +427,7 @@ Score negamax(chess::Board &board,
                         control);
                 }();
                 board.unmakeNullMove();
-                move_stack[ply + 1] = saved_null_stack_move;
-                moved_pt_stack[ply + 1] = saved_null_stack_pt;
-                prior_capture_stack[ply + 1] = saved_null_stack_prior_cap;
-                parent_move_count_stack[ply + 1] = saved_null_stack_parent_mc;
-                tt_hit_stack[ply + 1] = saved_null_stack_tt_hit;
-                in_check_stack[ply + 1] = saved_null_stack_in_check;
+                search_stack[ply + 1] = saved_null_stack;
                 if (stats.stopped)
                     return 0;
                 if (null_score >= beta && null_score < MATE_BOUND)
@@ -507,14 +495,7 @@ Score negamax(chess::Board &board,
                 if (see_cp(board, m) < minSeeCp)
                     continue;
                 if (ply + 1 <= MAX_PLY)
-                {
-                    move_stack[ply + 1] = m;
-                    moved_pt_stack[ply + 1] = pt_index(board.at(m.from()));
-                    prior_capture_stack[ply + 1] = capture_like_for_stack(board, m);
-                    parent_move_count_stack[ply + 1] = i + 1;
-                    tt_hit_stack[ply + 1] = false;
-                    in_check_stack[ply + 1] = false;
-                }
+                    set_search_stack_entry(ply + 1, board, m, i + 1);
                 board.makeMove(m);
                 // Preliminary qsearch verification .
                 Score score = -qsearch(board, ply + 1, -probCutBeta, -probCutBeta + ONE_CP, stats, config, control);
@@ -639,8 +620,8 @@ Score negamax(chess::Board &board,
     // We compute this once per node and store it for (ply-2) lookups.
     Score node_static_eval = node_corr_eval;
     if (ply >= 0 && ply <= MAX_PLY)
-        static_eval_stack[ply] = node_static_eval;
-    const bool improving = (ply >= 2 && ply <= MAX_PLY && node_static_eval >= static_eval_stack[ply - 2]);
+        search_stack[ply].static_eval = node_static_eval;
+    const bool improving = (ply >= 2 && ply <= MAX_PLY && node_static_eval >= search_stack[ply - 2].static_eval);
 
     // History-aware LMR adjustment for quiet moves.
     // Keep this weaker than ordering: history should nudge reductions, not dominate them.
@@ -935,10 +916,10 @@ Score negamax(chess::Board &board,
                         if (ply < dist)
                             break;
                         const int idx = ply + 1 - dist;
-                        const chess::Move &prev = move_stack[idx];
+                        const chess::Move &prev = search_stack[idx].move;
                         if (prev == chess::Move::NO_MOVE)
                             continue;
-                        const int prev_pt = moved_pt_stack[idx];
+                        const int prev_pt = search_stack[idx].moved_pt;
                         if (prev_pt < 0 || prev_pt >= NUM_ORDER_PT)
                             continue;
                         const int prev_to = prev.to().index();
@@ -1083,21 +1064,14 @@ Score negamax(chess::Board &board,
         {
             skip_quiet_moves = true;
         }
-        // Track previous move for continuation history (child ply reads move_stack[ply]).
+        // Track previous move for continuation history (child ply reads search_stack[ply].move).
         if (ply + 1 <= MAX_PLY)
-        {
-            move_stack[ply + 1] = move;
-            moved_pt_stack[ply + 1] = pt_index(board.at(move.from()));
-            prior_capture_stack[ply + 1] = capture_like_for_stack(board, move);
-            parent_move_count_stack[ply + 1] = moveCount;
-            tt_hit_stack[ply + 1] = false;
-            in_check_stack[ply + 1] = false;
-        }
+            set_search_stack_entry(ply + 1, board, move, moveCount);
         if (is_badcap_stage)
             ++stats.badcap_searched;
         board.makeMove(move);
         if (ply + 1 <= MAX_PLY)
-            in_check_stack[ply + 1] = board.inCheck();
+            search_stack[ply + 1].in_check = board.inCheck();
         Score score;
         if (first_move)
         {
@@ -1271,8 +1245,8 @@ Score negamax(chess::Board &board,
                 }
 
                 // Countermove/refutation: remember the quiet move that refuted the parent move.
-                const chess::Move pm = move_stack[ply];
-                if (pm != chess::Move::NO_MOVE && !prior_capture_stack[ply])
+                const chess::Move pm = search_stack[ply].move;
+                if (pm != chess::Move::NO_MOVE && !search_stack[ply].prior_capture)
                 {
                     const int stm = stm_index(board);
                     counter_moves[stm][pm.from().index()][pm.to().index()] = move;
@@ -1312,18 +1286,22 @@ const double main_neg_mult   = quiet_beta_cutoff ? config.history_neg_update_mul
 const double cont_bonus_mult = quiet_beta_cutoff ? config.cont_cutoff_bonus_mult    : 1.0;
 const double cont_neg_mult   = quiet_beta_cutoff ? config.cont_neg_update_mult      : 1.0;
 
-const int main_bonus = static_cast<int>(std::lround(static_cast<double>(main_bonus_base) * main_bonus_mult));
-const int cont_bonus = static_cast<int>(std::lround(static_cast<double>(cont_bonus_base) * cont_bonus_mult));
-const int main_malus = static_cast<int>(std::lround(static_cast<double>(main_malus_base) * main_neg_mult));
-const int cont_malus = static_cast<int>(std::lround(static_cast<double>(cont_malus_base) * cont_neg_mult));
+        const int main_bonus = static_cast<int>(std::lround(static_cast<double>(main_bonus_base) * main_bonus_mult));
+        const int cont_bonus = static_cast<int>(std::lround(static_cast<double>(cont_bonus_base) * cont_bonus_mult));
+        const int main_malus = static_cast<int>(std::lround(static_cast<double>(main_malus_base) * main_neg_mult));
+        const int cont_malus = static_cast<int>(std::lround(static_cast<double>(cont_malus_base) * cont_neg_mult));
         // Quiet-history + continuation-history updates
         if (!best_capture_stage)
         {
+            const int best_pt = pt_index(board.at(bm.from()));
             if (config.use_history_heuristic)
+            {
                 update_main_history_entry(history_heur[s][bf][bt], main_bonus);
+                update_pawn_history_no_board(board, s, best_pt, bt, main_bonus);
+            }
             if (config.use_continuation_history)
             {
-                const int cur_pt = pt_index(board.at(bm.from()));
+                const int cur_pt = best_pt;
                 for (int i = 1; i <= 6; ++i)
                 {
                     if (in_check && i > 2)
@@ -1331,11 +1309,11 @@ const int cont_malus = static_cast<int>(std::lround(static_cast<double>(cont_mal
                     if (ply < i)
                         break;
                     const int idx2 = ply + 1 - i;
-                    const chess::Move &prev = move_stack[idx2];
+                    const chess::Move &prev = search_stack[idx2].move;
                     if (prev == chess::Move::NO_MOVE)
                         continue;
                     const int prev_to = prev.to().index();
-                    const int prev_pt = moved_pt_stack[idx2];
+                    const int prev_pt = search_stack[idx2].moved_pt;
                     const int d = (cont_bonus * W[i]) / 1024;
                     if (d)
                         update_continuation_no_board(s, prev_pt, prev_to, cur_pt, bf, bt, d);
@@ -1350,6 +1328,7 @@ const int cont_malus = static_cast<int>(std::lround(static_cast<double>(cont_mal
                     const int qf = qm.from().index();
                     const int qt = qm.to().index();
                     update_main_history_entry(history_heur[s][qf][qt], -main_malus);
+                    update_pawn_history_no_board(board, s, pt_index(board.at(qm.from())), qt, -main_malus);
                 }
             }
             if (config.use_continuation_history)
@@ -1367,11 +1346,11 @@ const int cont_malus = static_cast<int>(std::lround(static_cast<double>(cont_mal
                         if (ply < i)
                             break;
                         const int idx2 = ply + 1 - i;
-                        const chess::Move &prev = move_stack[idx2];
+                        const chess::Move &prev = search_stack[idx2].move;
                         if (prev == chess::Move::NO_MOVE)
                             continue;
                         const int prev_to = prev.to().index();
-                        const int prev_pt = moved_pt_stack[idx2];
+                        const int prev_pt = search_stack[idx2].moved_pt;
                         const int d = -(cont_malus * W[i]) / 1024;
                         if (d)
                             update_continuation_no_board(s, prev_pt, prev_to, cur_pt, qf, qt, d);
@@ -1401,19 +1380,19 @@ const int cont_malus = static_cast<int>(std::lround(static_cast<double>(cont_mal
             }
         }
         // Refutation penalty for early quiet parent moves.
-        if (config.use_continuation_history && ply > 0 && move_stack[ply] != chess::Move::NO_MOVE && !prior_capture_stack[ply])
+        if (config.use_continuation_history && ply > 0 && search_stack[ply].move != chess::Move::NO_MOVE && !search_stack[ply].prior_capture)
         {
-            const int parent_mc = parent_move_count_stack[ply];
-            const int parent_tth = (tt_hit_stack[ply - 1] ? 1 : 0);
+            const int parent_mc = search_stack[ply].parent_move_count;
+            const int parent_tth = (search_stack[ply - 1].tt_hit ? 1 : 0);
             if (parent_mc == 1 + parent_tth)
             {
-                const chess::Move pm = move_stack[ply];
+                const chess::Move pm = search_stack[ply].move;
                 const int pf = pm.from().index();
                 const int pt = pm.to().index();
-                const int cur_pt = moved_pt_stack[ply];
+                const int cur_pt = search_stack[ply].moved_pt;
                 const int s_parent = 1 - s;
                 const int base = -(malus * 987) / 1024;
-                const bool parent_in_check = in_check_stack[ply - 1];
+                const bool parent_in_check = search_stack[ply - 1].in_check;
                 for (int i = 1; i <= 6; ++i)
                 {
                     if (parent_in_check && i > 2)
@@ -1421,11 +1400,11 @@ const int cont_malus = static_cast<int>(std::lround(static_cast<double>(cont_mal
                     if (ply < i)
                         break;
                     const int idx2 = ply - i;
-                    const chess::Move &prev = move_stack[idx2];
+                    const chess::Move &prev = search_stack[idx2].move;
                     if (prev == chess::Move::NO_MOVE)
                         continue;
                     const int prev_to = prev.to().index();
-                    const int prev_pt = moved_pt_stack[idx2];
+                    const int prev_pt = search_stack[idx2].moved_pt;
                     const int d = (base * W[i]) / 1024;
                     if (d)
                         update_continuation_no_board(s_parent, prev_pt, prev_to, cur_pt, pf, pt, d);
