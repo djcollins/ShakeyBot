@@ -20,7 +20,12 @@ build/
 *.tmp
 *.bak
 
+# Local benchmark/tournament artifacts
+Benchmarks*.txt
+benchmarks*.txt
+docs/LLM_DEV_WORKFLOW.md
+docs/ENGINE_ARCHITECTURE.md
+
 # VSCode (keep only shared settings if desired)
 .vscode/*
 !.vscode/settings.json
-
