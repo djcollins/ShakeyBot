@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 
 namespace fast_engine
 {
@@ -90,6 +91,12 @@ namespace fast_engine
             }
         }
     }
+    void TranspositionTable::new_search()
+    {
+        ++gen_;
+        if (gen_ == 0)
+            gen_ = 1;
+    }
 
     std::optional<TTEntry> TranspositionTable::probe(std::uint64_t key) const
     {
@@ -100,31 +107,45 @@ namespace fast_engine
         const std::uint16_t sig = key_signature16(key);
 
         const Bucket &b = table_[idx];
+        const PackedEntry *best = nullptr;
+        int best_quality = std::numeric_limits<int>::min();
 
         for (const auto &pe : b.e)
         {
-            if (pe.gen != gen_)
-                continue;
             if (pe.depth < 0)
                 continue;
             if (pe.key16 != sig)
                 continue;
 
-            TTEntry out;
-            out.key = key;
-            out.depth = static_cast<int>(pe.depth);
-            out.flag = static_cast<TTFlag>(pe.flag);
-            out.value = static_cast<Score>(pe.value_cp);
+            int q = static_cast<int>(pe.depth) * 8;
+            if (pe.flag == TT_EXACT)
+                q += 4;
+            if (pe.hasMove)
+                q += 1;
+            if (pe.gen == gen_)
+                q += 1024;
 
-            out.hasMove = (pe.hasMove != 0);
-            if (out.hasMove)
+            if (!best || q > best_quality)
             {
-                out.bestMove = chess::Move(pe.move16);
+                best = &pe;
+                best_quality = q;
             }
-            return out;
         }
 
-        return std::nullopt;
+        if (!best)
+            return std::nullopt;
+
+        TTEntry out;
+        out.key = key;
+        out.depth = static_cast<int>(best->depth);
+        out.flag = static_cast<TTFlag>(best->flag);
+        out.value = static_cast<Score>(best->value_cp);
+        out.static_eval = static_cast<Score>(best->static_eval_cp);
+
+        out.hasMove = (best->hasMove != 0);
+        if (out.hasMove)
+            out.bestMove = chess::Move(best->move16);
+        return out;
     }
 
     void TranspositionTable::store(const TTEntry &entry)
@@ -147,6 +168,7 @@ namespace fast_engine
             pe.depth = static_cast<std::int8_t>(std::clamp(entry.depth, 0, 127));
             pe.flag = static_cast<std::uint8_t>(entry.flag);
             pe.value_cp = vcp;
+            pe.static_eval_cp = static_cast<std::int32_t>(entry.static_eval);
 
             pe.hasMove = entry.hasMove ? 1 : 0;
             pe.move16 = entry.hasMove ? entry.bestMove.move() : chess::Move::NO_MOVE;
@@ -177,6 +199,8 @@ namespace fast_engine
             else
             {
                 // Keep old eval, but allow best-move fill-in if old had none.
+                if (entry.static_eval != TT_NO_STATIC_EVAL && pe.static_eval_cp == TT_NO_STATIC_EVAL)
+                    pe.static_eval_cp = static_cast<std::int32_t>(entry.static_eval);
                 if (entry.hasMove && pe.hasMove == 0)
                 {
                     pe.hasMove = 1;

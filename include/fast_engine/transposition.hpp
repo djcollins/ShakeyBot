@@ -17,6 +17,7 @@ namespace fast_engine
         TT_LOWERBOUND,
         TT_UPPERBOUND
     };
+    constexpr Score TT_NO_STATIC_EVAL = SCORE_INF;
 
     struct TTEntry
     {
@@ -24,17 +25,18 @@ namespace fast_engine
         int depth = 0;
         TTFlag flag = TT_EXACT;
         Score value = 0; // centipawns, side-to-move POV
+        Score static_eval = TT_NO_STATIC_EVAL; // raw static eval, side-to-move POV
 
         chess::Move bestMove{};
         bool hasMove = false;
 
         TTEntry() = default;
 
-        TTEntry(std::uint64_t k, int d, TTFlag f, Score v)
-            : key(k), depth(d), flag(f), value(v) {}
+        TTEntry(std::uint64_t k, int d, TTFlag f, Score v, Score se = TT_NO_STATIC_EVAL)
+            : key(k), depth(d), flag(f), value(v), static_eval(se) {}
 
-        TTEntry(std::uint64_t k, int d, TTFlag f, Score v, chess::Move mv)
-            : key(k), depth(d), flag(f), value(v), bestMove(mv), hasMove(true) {}
+        TTEntry(std::uint64_t k, int d, TTFlag f, Score v, chess::Move mv, Score se = TT_NO_STATIC_EVAL)
+            : key(k), depth(d), flag(f), value(v), static_eval(se), bestMove(mv), hasMove(true) {}
     };
 
     class TranspositionTable
@@ -49,6 +51,7 @@ namespace fast_engine
 
         void resize(std::size_t maxEntries);
         void clear(); // O(1): bump generation
+        void new_search(); // bump generation, keep older entries probeable
 
         std::optional<TTEntry> probe(std::uint64_t key) const;
         void store(const TTEntry &entry);
@@ -64,6 +67,7 @@ namespace fast_engine
         struct PackedEntry
         {
             std::int32_t value_cp = 0; // centipawns, already mate-adjusted
+            std::int32_t static_eval_cp = TT_NO_STATIC_EVAL; // raw static eval or sentinel
             std::uint16_t key16 = 0;   // key signature (top bits)
             std::uint16_t move16 = 0;  // chess::Move raw (0 == NO_MOVE)
             std::int8_t depth = -1;    // -1 == empty
@@ -72,7 +76,7 @@ namespace fast_engine
             std::uint8_t hasMove = 0;  // 0/1
         };
 
-        static_assert(sizeof(PackedEntry) == 12, "PackedEntry should be 12 bytes");
+        static_assert(sizeof(PackedEntry) == 16, "PackedEntry should be 16 bytes");
 
         struct Bucket
         {

@@ -1,4 +1,4 @@
-Benchmarks after  adding pawn history 
+Benchmarks after adding pawn history 
 
 ucinewgame
 position fen r1b1kb1r/p1pn1ppp/2p1P3/3p4/5B2/2N5/PqP1QPPP/R3KB1R w KQkq - 0 11

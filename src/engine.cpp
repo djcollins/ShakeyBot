@@ -314,6 +314,7 @@ namespace fast_engine
                                       const IterationCallback &on_iter,
                                       bool keep_searching_at_max_depth)
     {
+        tt_.new_search();
         const bool use_quiescence = config_.use_quiescence;
 
         // Best info from the *deepest* completed iteration

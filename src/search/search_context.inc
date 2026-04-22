@@ -138,6 +138,24 @@ inline Score from_tt_score(Score score, int ply)
         return score + ply;
     return score;
 }
+inline Score corr_hist_probe(const chess::Board &b, const EngineConfig &cfg) noexcept;
+inline bool tt_has_static_eval(const TTEntry &entry) noexcept
+{
+    return entry.static_eval != TT_NO_STATIC_EVAL;
+}
+inline Score corrected_static_eval_from_raw(Score raw_eval,
+                                            const chess::Board &board,
+                                            const EngineConfig &cfg) noexcept
+{
+    Score e = raw_eval + corr_hist_probe(board, cfg);
+
+    if (e >= MATE_BOUND)
+        e = MATE_BOUND - ONE_CP;
+    else if (e <= -MATE_BOUND)
+        e = -MATE_BOUND + ONE_CP;
+
+    return e;
+}
 // Clamp alpha/beta to mate bounds at this ply (mate-distance pruning).
 // This reduces nodes in forced-mate regions and improves mate conversion/defense.
 inline void clamp_mate_window(Score &alpha, Score &beta, int ply)
@@ -146,6 +164,7 @@ inline void clamp_mate_window(Score &alpha, Score &beta, int ply)
     beta = std::min(beta, static_cast<Score>(MATE_SCORE - ply));
 }
 constexpr int NUM_ORDER_PT = 6;
+constexpr int SEARCH_ALL_IDX = NUM_ORDER_PT;
 constexpr int PIECE_ORDER_VALUE[NUM_ORDER_PT] = {
     100,  // PAWN
     320,  // KNIGHT
@@ -183,6 +202,11 @@ constexpr int PAWN_HISTORY_SIZE = 8192;
 static int pawn_history[2][PAWN_HISTORY_SIZE][NUM_ORDER_PT][64];
 struct SearchStackEntry
 {
+    struct AttackCache
+    {
+        chess::Bitboard by[2][NUM_ORDER_PT + 1] = {};
+        chess::Bitboard by2[2] = {};
+    };
     chess::Move move = chess::Move::NO_MOVE;
     int moved_pt = -1;
     int parent_move_count = 0;
@@ -190,6 +214,9 @@ struct SearchStackEntry
     bool tt_hit = false;
     bool in_check = false;
     Score static_eval = 0;
+    std::uint64_t attack_cache_key = 0ULL;
+    bool attack_cache_ready = false;
+    AttackCache attack_cache{};
 };
 using SearchStack = std::array<SearchStackEntry, MAX_PLY + 1>;
 static SearchStack search_stack{};
@@ -453,6 +480,30 @@ inline void update_pawn_history_entry(int &v, int delta) noexcept
 {
     return board.isCapture(m) || (m.typeOf() == chess::Move::ENPASSANT);
 }
+[[maybe_unused]] inline int search_color_index(chess::Color c) noexcept
+{
+    return (c == chess::Color::WHITE) ? 0 : 1;
+}
+[[maybe_unused]] inline chess::Bitboard search_pawn_attacks_bb(chess::Color c, chess::Bitboard pawns) noexcept
+{
+    using namespace chess;
+    if (c == Color::WHITE)
+        return attacks::shift<Direction::NORTH_WEST>(pawns) | attacks::shift<Direction::NORTH_EAST>(pawns);
+    return attacks::shift<Direction::SOUTH_WEST>(pawns) | attacks::shift<Direction::SOUTH_EAST>(pawns);
+}
+[[maybe_unused]] inline chess::Bitboard search_pawn_double_attacks_bb(chess::Color c, chess::Bitboard pawns) noexcept
+{
+    using namespace chess;
+    if (c == Color::WHITE)
+    {
+        const Bitboard a = attacks::shift<Direction::NORTH_WEST>(pawns);
+        const Bitboard b = attacks::shift<Direction::NORTH_EAST>(pawns);
+        return a & b;
+    }
+    const Bitboard a = attacks::shift<Direction::SOUTH_WEST>(pawns);
+    const Bitboard b = attacks::shift<Direction::SOUTH_EAST>(pawns);
+    return a & b;
+}
 inline void clear_search_stack_entry(int ply) noexcept
 {
     if (ply < 0 || ply > MAX_PLY)
@@ -474,6 +525,98 @@ inline void set_search_stack_entry(int ply,
     ss.prior_capture = capture_like_for_stack(board, move);
     ss.tt_hit = false;
     ss.in_check = false;
+    ss.attack_cache_key = 0ULL;
+    ss.attack_cache_ready = false;
+}
+[[maybe_unused]] inline void build_search_attack_cache(const chess::Board &board,
+                                                       SearchStackEntry::AttackCache &cache) noexcept
+{
+    using namespace chess;
+
+    for (Color c : {Color::WHITE, Color::BLACK})
+    {
+        const int ci = search_color_index(c);
+        const Bitboard pawns = board.pieces(PieceType::PAWN, c);
+        const Bitboard pawn_att = search_pawn_attacks_bb(c, pawns);
+
+        cache.by[ci][static_cast<int>(PieceType::PAWN)] = pawn_att;
+        cache.by[ci][SEARCH_ALL_IDX] = pawn_att;
+        cache.by2[ci] = search_pawn_double_attacks_bb(c, pawns);
+
+        const Bitboard kbb = board.pieces(PieceType::KING, c);
+        if (!kbb.empty())
+        {
+            const Square ksq(static_cast<std::uint8_t>(kbb.lsb()));
+            const Bitboard a = attacks::king(ksq);
+            cache.by2[ci] |= cache.by[ci][SEARCH_ALL_IDX] & a;
+            cache.by[ci][SEARCH_ALL_IDX] |= a;
+            cache.by[ci][static_cast<int>(PieceType::KING)] = a;
+        }
+
+        {
+            Bitboard bb = board.pieces(PieceType::KNIGHT, c);
+            while (bb)
+            {
+                const Square sq(static_cast<std::uint8_t>(bb.pop()));
+                const Bitboard a = attacks::knight(sq);
+                cache.by2[ci] |= cache.by[ci][SEARCH_ALL_IDX] & a;
+                cache.by[ci][SEARCH_ALL_IDX] |= a;
+                cache.by[ci][static_cast<int>(PieceType::KNIGHT)] |= a;
+            }
+        }
+
+        {
+            Bitboard bb = board.pieces(PieceType::BISHOP, c);
+            while (bb)
+            {
+                const Square sq(static_cast<std::uint8_t>(bb.pop()));
+                const Bitboard a = attacks::bishop(sq, board.occ());
+                cache.by2[ci] |= cache.by[ci][SEARCH_ALL_IDX] & a;
+                cache.by[ci][SEARCH_ALL_IDX] |= a;
+                cache.by[ci][static_cast<int>(PieceType::BISHOP)] |= a;
+            }
+        }
+
+        {
+            Bitboard bb = board.pieces(PieceType::ROOK, c);
+            while (bb)
+            {
+                const Square sq(static_cast<std::uint8_t>(bb.pop()));
+                const Bitboard a = attacks::rook(sq, board.occ());
+                cache.by2[ci] |= cache.by[ci][SEARCH_ALL_IDX] & a;
+                cache.by[ci][SEARCH_ALL_IDX] |= a;
+                cache.by[ci][static_cast<int>(PieceType::ROOK)] |= a;
+            }
+        }
+
+        {
+            Bitboard bb = board.pieces(PieceType::QUEEN, c);
+            while (bb)
+            {
+                const Square sq(static_cast<std::uint8_t>(bb.pop()));
+                const Bitboard a = attacks::queen(sq, board.occ());
+                cache.by2[ci] |= cache.by[ci][SEARCH_ALL_IDX] & a;
+                cache.by[ci][SEARCH_ALL_IDX] |= a;
+                cache.by[ci][static_cast<int>(PieceType::QUEEN)] |= a;
+            }
+        }
+    }
+}
+[[maybe_unused]] inline const SearchStackEntry::AttackCache &ensure_search_attack_cache(const chess::Board &board,
+                                                                                        int ply) noexcept
+{
+    if (ply < 0 || ply > MAX_PLY)
+        return search_stack[0].attack_cache;
+    SearchStackEntry &ss = search_stack[ply];
+    const std::uint64_t key = board.hash();
+    if (!ss.attack_cache_ready || ss.attack_cache_key != key)
+    {
+        ss.attack_cache = SearchStackEntry::AttackCache{};
+        build_search_attack_cache(board, ss.attack_cache);
+        ss.attack_cache_key = key;
+        ss.attack_cache_ready = true;
+    }
+    return ss.attack_cache;
 }
 [[maybe_unused]] inline bool capture_stage_for_stats(const chess::Board &board, const chess::Move &m) noexcept
 {
@@ -586,16 +729,7 @@ inline void corr_hist_update(const chess::Board &b, const EngineConfig &cfg, Sco
 // value and avoids subtle drift from duplicated computations.
 inline Score corrected_eval_stm(const chess::Board &b, const EngineConfig &cfg) noexcept
 {
-    Score e = eval_stm_no_game_over(b, cfg);
-    e += corr_hist_probe(b, cfg);
-
-    // Pruning gates should never see mate scores; clamp into the non-mate range.
-    if (e >= MATE_BOUND)
-        e = MATE_BOUND - ONE_CP;
-    else if (e <= -MATE_BOUND)
-        e = -MATE_BOUND + ONE_CP;
-
-    return e;
+    return corrected_static_eval_from_raw(eval_stm_no_game_over(b, cfg), b, cfg);
 }
 
 inline void record_legal_movegen(SearchStats &stats, const chess::Movelist &moves) noexcept

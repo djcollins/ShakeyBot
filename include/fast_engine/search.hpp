@@ -104,6 +104,7 @@ namespace fast_engine
                   Score beta,
                   SearchStats &stats,
                   const EngineConfig &config,
+                  TranspositionTable *tt = nullptr,
                   SearchControl *control = nullptr);
 
     /**

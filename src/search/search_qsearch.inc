@@ -5,6 +5,7 @@ Score qsearch(chess::Board &board,
               Score beta,
               SearchStats &stats,
               const EngineConfig &config,
+              TranspositionTable *tt,
               SearchControl *control)
 {
     // Quiescence keeps search tactical at the frontier:
@@ -43,6 +44,35 @@ Score qsearch(chess::Board &board,
     clamp_mate_window(alpha, beta, ply);
     if (alpha >= beta)
         return alpha;
+    const Score alpha_window = alpha;
+    chess::Move tt_best_move = chess::Move::NO_MOVE;
+    bool have_tt_best = false;
+    Score raw_static_eval = TT_NO_STATIC_EVAL;
+    if (tt)
+    {
+        if (auto entry_opt = tt->probe(board.hash()))
+        {
+            ++stats.tt_hits;
+            const TTEntry &entry = *entry_opt;
+            const Score tt_value = from_tt_score(entry.value, ply);
+            if (entry.hasMove)
+            {
+                tt_best_move = entry.bestMove;
+                have_tt_best = true;
+            }
+            if (tt_has_static_eval(entry))
+                raw_static_eval = entry.static_eval;
+
+            const bool tt_lower = (entry.flag == TT_LOWERBOUND || entry.flag == TT_EXACT);
+            const bool tt_upper = (entry.flag == TT_UPPERBOUND || entry.flag == TT_EXACT);
+            if ((tt_value >= beta && tt_lower) || (tt_value <= alpha && tt_upper))
+                return tt_value;
+        }
+        else
+        {
+            ++stats.tt_misses;
+        }
+    }
     // Max-ply safety : avoid overflowing ply-indexed stacks/tables.
     // At MAX_PLY, we do not expand further. If in check, return mate if no evasion else draw.
     if (ply >= MAX_PLY)
@@ -56,8 +86,9 @@ Score qsearch(chess::Board &board,
                 return -MATE_SCORE + ply;
             return draw_score_stm(board, config);
         }
-        Score e = eval_stm_no_game_over(board, config);
-        e += corr_hist_probe(board, config);
+        if (raw_static_eval == TT_NO_STATIC_EVAL)
+            raw_static_eval = eval_stm_no_game_over(board, config);
+        Score e = corrected_static_eval_from_raw(raw_static_eval, board, config);
         return e;
     }
     // If side to move is in check, we must search ALL legal evasions.
@@ -72,7 +103,9 @@ Score qsearch(chess::Board &board,
             return -MATE_SCORE + ply;
         }
         // Order evasions using the same heuristic pipeline as before.
-        order_moves(board, evasions, nullptr, ply, config);
+        const chess::Move *tt_move_ptr = have_tt_best ? &tt_best_move : nullptr;
+        order_moves(board, evasions, tt_move_ptr, ply, config);
+        chess::Move best_move_local = chess::Move::NO_MOVE;
         for (int i = 0; i < evasions.size(); ++i)
         {
             if (hard_stop(control, stats))
@@ -81,22 +114,43 @@ Score qsearch(chess::Board &board,
             if (ply + 1 <= MAX_PLY)
                 set_search_stack_entry(ply + 1, board, move, i + 1);
             board.makeMove(move);
-            const Score score = -qsearch(board, ply + 1, -beta, -alpha, stats, config, control);
+            const Score score = -qsearch(board, ply + 1, -beta, -alpha, stats, config, tt, control);
             board.unmakeMove(move);
             if (stats.stopped)
                 return 0;
             if (score >= beta)
+            {
+                if (tt)
+                    tt->store(TTEntry(board.hash(), 0, TT_LOWERBOUND, to_tt_score(score, ply), move, raw_static_eval));
                 return score;
+            }
             if (score > alpha)
+            {
                 alpha = score;
+                best_move_local = move;
+            }
+        }
+        if (tt)
+        {
+            const std::uint64_t key = board.hash();
+            const TTFlag flag = (alpha <= alpha_window) ? TT_UPPERBOUND : TT_EXACT;
+            if (best_move_local != chess::Move::NO_MOVE)
+                tt->store(TTEntry(key, 0, flag, to_tt_score(alpha, ply), best_move_local, raw_static_eval));
+            else
+                tt->store(TTEntry(key, 0, flag, to_tt_score(alpha, ply), raw_static_eval));
         }
         return alpha;
     }
     // Stand-pat (not in check)
-    Score stand_pat = eval_stm_no_game_over(board, config);
-    stand_pat += corr_hist_probe(board, config);
+    if (raw_static_eval == TT_NO_STATIC_EVAL)
+        raw_static_eval = eval_stm_no_game_over(board, config);
+    Score stand_pat = corrected_static_eval_from_raw(raw_static_eval, board, config);
     if (stand_pat >= beta)
+    {
+        if (tt)
+            tt->store(TTEntry(board.hash(), 0, TT_LOWERBOUND, to_tt_score(stand_pat, ply), raw_static_eval));
         return stand_pat;
+    }
     if (stand_pat > alpha)
         alpha = stand_pat;
     // Tactical move generation only: captures + quiet promotions.
@@ -182,6 +236,8 @@ Score qsearch(chess::Board &board,
             }
         }
         const bool gives_check = (board.givesCheck(m) != chess::CheckType::NO_CHECK);
+        if (have_tt_best && m == tt_best_move)
+            s += 1'000'000;
         if (gives_check)
             s += 5'000;
         if (count < static_cast<int>(scored.size()))
@@ -222,6 +278,12 @@ Score qsearch(chess::Board &board,
     if (count == 0)
     {
         // No tactical moves available -> quiet position.
+        if (tt)
+        {
+            const std::uint64_t key = board.hash();
+            const TTFlag flag = (alpha <= alpha_window) ? TT_UPPERBOUND : TT_EXACT;
+            tt->store(TTEntry(key, 0, flag, to_tt_score(alpha, ply), raw_static_eval));
+        }
         return alpha;
     }
     std::sort(scored.begin(), scored.begin() + count,
@@ -230,6 +292,7 @@ Score qsearch(chess::Board &board,
                   return a.score > b.score;
               });
     constexpr Score DELTA_MARGIN = 100; // centipawns; slightly less aggressive (safer tactics)
+    chess::Move best_move_local = chess::Move::NO_MOVE;
     for (int i = 0; i < count; ++i)
     {
         if (hard_stop(control, stats))
@@ -278,14 +341,30 @@ Score qsearch(chess::Board &board,
         if (ply + 1 <= MAX_PLY)
             set_search_stack_entry(ply + 1, board, move, i + 1);
         board.makeMove(move);
-        const Score score = -qsearch(board, ply + 1, -beta, -alpha, stats, config, control);
+        const Score score = -qsearch(board, ply + 1, -beta, -alpha, stats, config, tt, control);
         board.unmakeMove(move);
         if (stats.stopped)
             return 0;
         if (score >= beta)
+        {
+            if (tt)
+                tt->store(TTEntry(board.hash(), 0, TT_LOWERBOUND, to_tt_score(score, ply), move, raw_static_eval));
             return score;
+        }
         if (score > alpha)
+        {
             alpha = score;
+            best_move_local = move;
+        }
+    }
+    if (tt)
+    {
+        const std::uint64_t key = board.hash();
+        const TTFlag flag = (alpha <= alpha_window) ? TT_UPPERBOUND : TT_EXACT;
+        if (best_move_local != chess::Move::NO_MOVE)
+            tt->store(TTEntry(key, 0, flag, to_tt_score(alpha, ply), best_move_local, raw_static_eval));
+        else
+            tt->store(TTEntry(key, 0, flag, to_tt_score(alpha, ply), raw_static_eval));
     }
     return alpha;
 }

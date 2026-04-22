@@ -134,6 +134,7 @@ Score negamax(chess::Board &board,
     int tt_entry_depth = 0;
     TTFlag tt_entry_flag = TT_UPPERBOUND;
     Score tt_entry_value = 0;
+    Score tt_static_eval = TT_NO_STATIC_EVAL;
     // --- Draws / repetition ---
     // IMPORTANT: only mark stats.is_draw at ROOT (ply == 0). Deep repetitions should
     // not set the final "is_draw" output.
@@ -185,6 +186,8 @@ Score negamax(chess::Board &board,
             tt_entry_depth = e.depth;
             tt_entry_flag = e.flag;
             tt_entry_value = tt_value;
+            if (tt_has_static_eval(e))
+                tt_static_eval = e.static_eval;
             if (e.hasMove)
             {
                 tt_best_move = e.bestMove;
@@ -312,7 +315,10 @@ Score negamax(chess::Board &board,
     const Score beta_window = beta;
     const bool is_null_window = (beta_window - alpha_window) <= ONE_CP;
     const bool in_check = board.inCheck();
-    const Score node_corr_eval = corrected_eval_stm(board, config);
+    const Score raw_static_eval = (tt_static_eval != TT_NO_STATIC_EVAL)
+                                      ? tt_static_eval
+                                      : eval_stm_no_game_over(board, config);
+    const Score node_corr_eval = corrected_static_eval_from_raw(raw_static_eval, board, config);
     if (0 <= ply && ply <= MAX_PLY)
         search_stack[ply].in_check = in_check;
     // --- Razoring (very conservative; depth 2-3 only; null-window only) ---
@@ -335,7 +341,7 @@ Score negamax(chess::Board &board,
         {
             ++stats.razor_attempts;
             // Return qsearch at the node window if the static-eval gate already fails low.
-            const Score qs = qsearch(board, ply, alpha, beta, stats, config, control);
+            const Score qs = qsearch(board, ply, alpha, beta, stats, config, tt_here, control);
             if (stats.stopped)
                 return 0;
             if (qs <= alpha)
@@ -498,7 +504,7 @@ Score negamax(chess::Board &board,
                     set_search_stack_entry(ply + 1, board, m, i + 1);
                 board.makeMove(m);
                 // Preliminary qsearch verification .
-                Score score = -qsearch(board, ply + 1, -probCutBeta, -probCutBeta + ONE_CP, stats, config, control);
+                Score score = -qsearch(board, ply + 1, -probCutBeta, -probCutBeta + ONE_CP, stats, config, tt, control);
                 // If the qsearch held, perform the reduced-depth search.
                 if (score >= probCutBeta && probCutDepth > 0)
                 {
@@ -524,7 +530,7 @@ Score negamax(chess::Board &board,
                     if (tt_here)
                     {
                         const int store_depth = std::max(depth - 3, 0);
-                        TTEntry e(key, store_depth, TT_LOWERBOUND, to_tt_score(beta, ply), m);
+                        TTEntry e(key, store_depth, TT_LOWERBOUND, to_tt_score(beta, ply), m, raw_static_eval);
                         tt_here->store(e);
                     }
                     return beta; // fail-hard cutoff
@@ -538,7 +544,7 @@ Score negamax(chess::Board &board,
         Score val;
         if (use_quiescence)
         {
-            val = qsearch(board, ply, alpha, beta, stats, config, control);
+            val = qsearch(board, ply, alpha, beta, stats, config, tt_here, control);
         }
         else
         {
@@ -552,8 +558,7 @@ Score negamax(chess::Board &board,
             }
             else
             {
-                val = eval_stm_no_game_over(board, config);
-                val += corr_hist_probe(board, config);
+                val = corrected_static_eval_from_raw(raw_static_eval, board, config);
             }
         }
         // TT leaf stores must respect the window used (qsearch is not always exact under alpha/beta).
@@ -566,7 +571,7 @@ Score negamax(chess::Board &board,
                 leaf_flag = TT_LOWERBOUND;
             else
                 leaf_flag = TT_EXACT;
-            tt_here->store(TTEntry(key, depth, leaf_flag, to_tt_score(val, ply)));
+            tt_here->store(TTEntry(key, depth, leaf_flag, to_tt_score(val, ply), raw_static_eval));
         }
         return val;
     }
@@ -1419,8 +1424,7 @@ const double cont_neg_mult   = quiet_beta_cutoff ? config.cont_neg_update_mult  
         best_score > alpha_window && best_score < beta_window &&
         best_score < MATE_BOUND && best_score > -MATE_BOUND)
     {
-        const Score raw_se = eval_stm_no_game_over(board, config);
-        corr_hist_update(board, config, best_score - raw_se);
+        corr_hist_update(board, config, best_score - raw_static_eval);
     }
     // --- Store result in TT (if available) ---
     if (tt_here && !stats.stopped)
@@ -1441,12 +1445,12 @@ const double cont_neg_mult   = quiet_beta_cutoff ? config.cont_neg_update_mult  
         const Score store_score = to_tt_score(best_score, ply);
         if (have_best)
         {
-            TTEntry e(key, depth, flag, store_score, best_move_local);
+            TTEntry e(key, depth, flag, store_score, best_move_local, raw_static_eval);
             tt_here->store(e);
         }
         else
         {
-            TTEntry e(key, depth, flag, store_score);
+            TTEntry e(key, depth, flag, store_score, raw_static_eval);
             tt_here->store(e);
         }
     }
