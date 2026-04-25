@@ -580,7 +580,7 @@ namespace fast_engine
             prev_best_move_all = iter_best_move;
 
             // If the best move is stable for many depths, reduce time; otherwise allow more time.
-            const double timeReduction = (last_pv0_change_depth + 4 < completed_depth) ? 1.6857 : 0.9; // changed the +8 <.. to +4 <
+            const double timeReduction = (last_pv0_change_depth + 4 < completed_depth) ? 1.6857 : 0.9;
             const double reduction = (1.4540 + previous_time_reduction) / (2.1593 * timeReduction);
 
             // More root best-move flips within this iteration => spend more time.
