@@ -839,7 +839,17 @@ static void print_search_output(UciIO &io,
             << " lmgM=" << result.legal_moves_generated
             << " lmgAvg=" << std::setprecision(2) << lmg_avg
             << " razorAttempts=" << result.razor_attempts
-            << " razorCutoffs=" << result.razor_cutoffs;
+            << " razorCutoffs=" << result.razor_cutoffs
+            << " aspRtot=" << result.aspiration_retries_total
+            << " aspFLtot=" << result.aspiration_fail_lows_total
+            << " aspFHtot=" << result.aspiration_fail_highs_total
+            << " aspR=" << result.final_aspiration_retries
+            << " aspFL=" << result.final_aspiration_fail_lows
+            << " aspFH=" << result.final_aspiration_fail_highs
+            << " jump=" << result.final_score_jump
+            << " gap=" << result.final_bestmove_gap
+            << " share=" << std::setprecision(3) << result.final_bestmove_subtree_share
+            << " ttq=" << static_cast<int>(result.final_root_tt_quality);
 
         io.log(dbg.str());
     }

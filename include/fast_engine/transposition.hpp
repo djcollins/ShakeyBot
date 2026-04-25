@@ -26,6 +26,7 @@ namespace fast_engine
         TTFlag flag = TT_EXACT;
         Score value = 0; // centipawns, side-to-move POV
         Score static_eval = TT_NO_STATIC_EVAL; // raw static eval, side-to-move POV
+        bool current_generation = false;
 
         chess::Move bestMove{};
         bool hasMove = false;

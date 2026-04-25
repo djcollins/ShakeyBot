@@ -10,6 +10,161 @@
 namespace fast_engine
 {
 
+    namespace
+    {
+        struct RootIterationTelemetry
+        {
+            int aspiration_retries = 0;
+            int aspiration_fail_lows = 0;
+            int aspiration_fail_highs = 0;
+            Score score_jump = 0;
+            Score best_move_gap = 0;
+            double best_move_subtree_share = 0.0;
+            std::uint8_t root_tt_quality = ROOT_TTQ_NONE;
+        };
+
+        static Score score_abs(Score value) noexcept
+        {
+            return value < 0 ? -value : value;
+        }
+
+        static Score initial_root_aspiration_window(int depth,
+                                                    const RootIterationTelemetry &previous)
+        {
+            Score window = 50;
+            const Score jump = score_abs(previous.score_jump);
+            const int fail_count = previous.aspiration_fail_lows + previous.aspiration_fail_highs;
+
+            if (depth >= 6)
+            {
+                if (jump >= 160)
+                    window += 64;
+                else if (jump >= 100)
+                    window += 44;
+                else if (jump >= 60)
+                    window += 24;
+                else if (jump <= 14 && previous.aspiration_retries == 0 && depth >= 10)
+                    window -= 6;
+
+                if (previous.aspiration_retries > 0 || fail_count > 0)
+                    window += static_cast<Score>(20 * previous.aspiration_retries + 12 * fail_count);
+
+                if (previous.best_move_gap > 0)
+                {
+                    if (previous.best_move_gap <= 20)
+                        window += 16;
+                    else if (previous.best_move_gap <= 45)
+                        window += 8;
+                    else if (previous.best_move_gap >= 130 && jump <= 14 &&
+                             previous.aspiration_retries == 0 && depth >= 10)
+                        window -= 8;
+                }
+
+                if (previous.best_move_subtree_share >= 0.70 &&
+                    previous.best_move_gap > 0 && previous.best_move_gap <= 45)
+                {
+                    window += 8;
+                }
+            }
+
+            return std::clamp(window, Score(36), Score(180));
+        }
+
+        static Score widen_root_aspiration_window(Score window) noexcept
+        {
+            return std::min<Score>(Score(1200), window * 2 + 16);
+        }
+
+        struct RootTimeAllocation
+        {
+            double target_multiplier = 1.0;
+            double min_scale = 0.60;
+            double max_scale = 1.15;
+        };
+
+        static RootTimeAllocation root_time_adjustment(int completed_depth,
+                                                       int pv_stable_depths,
+                                                       const SearchStats &iter_stats,
+                                                       const RootIterationTelemetry &telemetry)
+        {
+            RootTimeAllocation out{};
+
+            if (completed_depth < 6 || iter_stats.root_branching_factor <= 1)
+                return out;
+
+            const Score jump = score_abs(telemetry.score_jump);
+            const int aspiration_chaos = telemetry.aspiration_retries +
+                                         telemetry.aspiration_fail_lows +
+                                         telemetry.aspiration_fail_highs;
+
+            const bool gap_known = telemetry.best_move_gap > 0;
+            const bool tight_gap = gap_known && telemetry.best_move_gap <= 24;
+            const bool medium_gap = gap_known && telemetry.best_move_gap <= 60;
+            const bool clear_gap = gap_known && telemetry.best_move_gap >= 110;
+
+            const bool dominant_best = telemetry.best_move_subtree_share >= 0.58;
+            const bool diffuse_root = telemetry.best_move_subtree_share > 0.0 &&
+                                      telemetry.best_move_subtree_share <= 0.36;
+
+            const bool stable_jump = jump <= 16;
+            const bool volatile_jump = jump >= 70;
+            const bool severe_jump = jump >= 130;
+
+            const bool aspiration_calm = aspiration_chaos == 0 && telemetry.aspiration_retries == 0;
+            const bool aspiration_busy = aspiration_chaos >= 1;
+            const bool aspiration_chaotic = aspiration_chaos >= 3 || telemetry.aspiration_retries >= 2;
+
+            const bool stable_pv = pv_stable_depths >= 5;
+            const bool very_stable_pv = pv_stable_depths >= 7;
+            const bool root_wobble_free = iter_stats.best_move_changes == 0;
+
+            if (aspiration_busy)
+                out.target_multiplier *= 1.04;
+            if (aspiration_chaotic)
+                out.target_multiplier *= 1.08;
+
+            if (volatile_jump)
+                out.target_multiplier *= 1.06;
+            if (severe_jump)
+                out.target_multiplier *= 1.06;
+
+            if (tight_gap)
+                out.target_multiplier *= 1.10;
+            else if (medium_gap && !dominant_best)
+                out.target_multiplier *= 1.04;
+            else if (clear_gap && dominant_best &&
+                     stable_jump && aspiration_calm && stable_pv && root_wobble_free)
+                out.target_multiplier *= 0.88;
+            else if (gap_known && telemetry.best_move_gap >= 70 && dominant_best &&
+                     stable_jump && aspiration_calm && stable_pv && root_wobble_free)
+                out.target_multiplier *= 0.95;
+
+            if (diffuse_root && (!gap_known || telemetry.best_move_gap <= 45))
+                out.target_multiplier *= 1.05;
+
+            if (aspiration_chaotic || severe_jump || tight_gap || diffuse_root)
+                out.max_scale = 1.35;
+            if ((aspiration_chaotic && volatile_jump) || (tight_gap && diffuse_root))
+                out.max_scale = 1.50;
+
+            if (clear_gap && dominant_best &&
+                stable_jump && aspiration_calm && very_stable_pv && root_wobble_free)
+            {
+                out.min_scale = 0.45;
+                out.max_scale = 1.00;
+            }
+            else if (gap_known && telemetry.best_move_gap >= 70 && dominant_best &&
+                     stable_jump && aspiration_calm && stable_pv && root_wobble_free)
+            {
+                out.min_scale = 0.52;
+                out.max_scale = std::min(out.max_scale, 1.05);
+            }
+
+            out.target_multiplier = std::clamp(out.target_multiplier, 0.72, 1.50);
+            return out;
+        }
+    } // namespace
+
     TimeBudget compute_time_budget(const SearchLimits &limits,
                                    chess::Color side_to_move,
                                    const EngineConfig &cfg)
@@ -80,6 +235,62 @@ namespace fast_engine
                 return true;
         }
         return false;
+    }
+
+    static std::uint8_t classify_root_tt_quality(const std::optional<TTEntry> &entry,
+                                                 int root_depth)
+    {
+        if (!entry.has_value() || !entry->hasMove)
+            return ROOT_TTQ_NONE;
+
+        const int trusted_depth = std::max(1, root_depth - 2);
+        if (entry->current_generation && entry->flag == TT_EXACT && entry->depth >= trusted_depth)
+            return ROOT_TTQ_TRUSTED_PV;
+        if ((entry->flag == TT_EXACT && entry->depth >= trusted_depth) ||
+            (entry->current_generation && entry->depth >= trusted_depth))
+            return ROOT_TTQ_DEEP;
+        if (entry->current_generation)
+            return ROOT_TTQ_BOUND;
+        return ROOT_TTQ_MOVE_ONLY;
+    }
+
+    static void summarize_root_iteration(const std::vector<RootMove> &root_moves,
+                                         chess::Move best_move,
+                                         Score best_score,
+                                         RootIterationTelemetry &telemetry)
+    {
+        Score second_score = -SEARCH_INF;
+        bool have_second = false;
+        std::uint64_t total_nodes = 0;
+        std::uint64_t best_nodes = 0;
+        int searched_count = 0;
+
+        for (const RootMove &rm : root_moves)
+        {
+            if (!rm.was_searched)
+                continue;
+
+            ++searched_count;
+            total_nodes += rm.subtree_nodes;
+
+            if (rm.move == best_move)
+            {
+                best_nodes = rm.subtree_nodes;
+                continue;
+            }
+
+            if (!have_second || rm.last_score > second_score)
+            {
+                second_score = rm.last_score;
+                have_second = true;
+            }
+        }
+
+        telemetry.best_move_gap = have_second ? (best_score - second_score) : 0;
+        if (total_nodes > 0)
+            telemetry.best_move_subtree_share = static_cast<double>(best_nodes) / static_cast<double>(total_nodes);
+        else if (searched_count == 1)
+            telemetry.best_move_subtree_share = 1.0;
     }
 
     static std::string build_pv_uci(chess::Board root,
@@ -325,6 +536,10 @@ namespace fast_engine
         // Aggregated stats over all iterations
         SearchStats total_stats{};
         total_stats.root_branching_factor = 0;
+        RootIterationTelemetry final_root_telemetry{};
+        int total_aspiration_retries = 0;
+        int total_aspiration_fail_lows = 0;
+        int total_aspiration_fail_highs = 0;
 
         const auto start = (control ? control->start : std::chrono::steady_clock::now());
 
@@ -351,7 +566,8 @@ namespace fast_engine
 
         auto update_soft_deadline = [&](int completed_depth,
                                         const SearchStats &iter_stats,
-                                        const chess::Move iter_best_move)
+                                        const chess::Move iter_best_move,
+                                        const RootIterationTelemetry &iter_root_telemetry)
         {
             if (!control || !control->time_enabled)
                 return;
@@ -371,14 +587,21 @@ namespace fast_engine
             double bestMoveInstability = 0.9929 + 1.8519 * (double(iter_stats.best_move_changes)); // 1 thread
             bestMoveInstability = std::clamp(bestMoveInstability, 0.50, 3.00);
 
+            const int pv_stable_depths = std::max(0, completed_depth - last_pv0_change_depth);
+            const RootTimeAllocation root_time =
+                root_time_adjustment(completed_depth, pv_stable_depths, iter_stats, iter_root_telemetry);
+
             double target_ms = double(base_soft_ms) * reduction * bestMoveInstability;
+            target_ms *= root_time.target_multiplier;
 
             // Cap used time in case of a single legal move (viewer experience + avoid wasting time).
             if (iter_stats.root_branching_factor == 1)
                 target_ms = std::min(target_ms, 500.0);
             // Keep this as a moderate adjustment around the initial optimum time.
-            const double min_ms = std::max(1.0, double(base_soft_ms) * 0.60);
-            const double max_ms = std::min(double(base_hard_ms), double(base_soft_ms) * 1.15);
+            const double min_ms = std::max(1.0, double(base_soft_ms) * root_time.min_scale);
+            const double max_ms = std::max(min_ms,
+                                           std::min(double(base_hard_ms),
+                                                    double(base_soft_ms) * root_time.max_scale));
             target_ms = std::clamp(target_ms, min_ms, max_ms);
 
             control->soft_deadline = start + std::chrono::milliseconds(int(target_ms));
@@ -425,16 +648,21 @@ namespace fast_engine
             }
 
             const int depth_to_search = (cur_depth <= max_depth ? cur_depth : max_depth);
+            const auto root_tt_seed_entry = tt_.probe(board.hash());
+            RootIterationTelemetry iter_root_telemetry{};
+            iter_root_telemetry.root_tt_quality = classify_root_tt_quality(root_tt_seed_entry, depth_to_search);
 
-            // Start with full window unless we have a prior score
+            // Start with full window unless we have a prior quiet score.
             Score alpha = -INF;
             Score beta = INF;
 
-            Score window = 50; // centipawns
-            if (have_prev && std::abs(prev_score) < MATE_BOUND)
+            const bool use_aspiration = have_prev && score_abs(prev_score) < MATE_BOUND;
+            Score lower_window = initial_root_aspiration_window(depth_to_search, final_root_telemetry);
+            Score upper_window = lower_window;
+            if (use_aspiration)
             {
-                alpha = prev_score - window;
-                beta = prev_score + window;
+                alpha = prev_score - lower_window;
+                beta = prev_score + upper_window;
             }
 
             chess::Move iter_best_move{};
@@ -443,11 +671,13 @@ namespace fast_engine
             bool ok = false;
             SearchStats last_stats{};
             bool in_window = false;
+            int root_attempts = 0;
             // Widen on fail-low / fail-high
             for (int tries = 0; tries < 5; ++tries)
             {
                 SearchStats iter_stats{};
                 iter_stats.depth_requested = depth_to_search;
+                ++root_attempts;
 
                 ok = find_best_move(
                     board,
@@ -508,19 +738,21 @@ namespace fast_engine
 
                 if (iter_best_score <= alpha)
                 {
-                    // fail-low: widen downward
-                    window *= 2;
-                    alpha = (have_prev ? prev_score - window : -INF);
-                    beta = (have_prev ? prev_score + window : INF);
+                    // Fail-low: only widen the failed side. Keep the upper side tight.
+                    ++iter_root_telemetry.aspiration_fail_lows;
+                    lower_window = widen_root_aspiration_window(lower_window);
+                    alpha = (use_aspiration ? prev_score - lower_window : -INF);
+                    beta = (use_aspiration ? prev_score + upper_window : INF);
                     continue;
                 }
 
                 if (iter_best_score >= beta)
                 {
-                    // fail-high: widen upward
-                    window *= 2;
-                    alpha = (have_prev ? prev_score - window : -INF);
-                    beta = (have_prev ? prev_score + window : INF);
+                    // Fail-high: only widen the failed side. Keep the lower side tight.
+                    ++iter_root_telemetry.aspiration_fail_highs;
+                    upper_window = widen_root_aspiration_window(upper_window);
+                    alpha = (use_aspiration ? prev_score - lower_window : -INF);
+                    beta = (use_aspiration ? prev_score + upper_window : INF);
                     continue;
                 }
 
@@ -535,6 +767,7 @@ namespace fast_engine
             {
                 SearchStats iter_stats{};
                 iter_stats.depth_requested = depth_to_search;
+                ++root_attempts;
 
                 alpha = -INF;
                 beta = INF;
@@ -601,6 +834,11 @@ namespace fast_engine
                 break;
             }
 
+            iter_root_telemetry.aspiration_retries = std::max(0, root_attempts - 1);
+            if (have_prev)
+                iter_root_telemetry.score_jump = iter_best_score - prev_score;
+            summarize_root_iteration(root_moves, iter_best_move, iter_best_score, iter_root_telemetry);
+
             commit_root_iteration(root_moves);
             reorder_root_moves(root_moves,
                                iter_best_move,
@@ -624,10 +862,14 @@ namespace fast_engine
             has_best = last_stats.has_best_move;
             best_move = iter_best_move;
             best_score = iter_best_score;
+            final_root_telemetry = iter_root_telemetry;
+            total_aspiration_retries += iter_root_telemetry.aspiration_retries;
+            total_aspiration_fail_lows += iter_root_telemetry.aspiration_fail_lows;
+            total_aspiration_fail_highs += iter_root_telemetry.aspiration_fail_highs;
 
-            // Update time-management soft deadline based on PV stability and root best-move wobble.
+            // Update time-management soft deadline from PV stability plus root telemetry.
             if (control && control->time_enabled && last_stats.has_best_move)
-                update_soft_deadline(depth_to_search, last_stats, iter_best_move);
+                update_soft_deadline(depth_to_search, last_stats, iter_best_move, iter_root_telemetry);
 
             // Per-iteration callback (info lines in the UCI layer).
             if (on_iter)
@@ -648,6 +890,13 @@ namespace fast_engine
                 ii.tt_misses = total_stats.tt_misses;
                 ii.is_mate = total_stats.is_mate;
                 ii.is_draw = total_stats.is_draw;
+                ii.aspiration_retries = iter_root_telemetry.aspiration_retries;
+                ii.aspiration_fail_lows = iter_root_telemetry.aspiration_fail_lows;
+                ii.aspiration_fail_highs = iter_root_telemetry.aspiration_fail_highs;
+                ii.score_jump = iter_root_telemetry.score_jump;
+                ii.best_move_gap = iter_root_telemetry.best_move_gap;
+                ii.best_move_subtree_share = iter_root_telemetry.best_move_subtree_share;
+                ii.root_tt_quality = iter_root_telemetry.root_tt_quality;
 
                 // PV extraction is best-effort (TT collisions / illegal moves are filtered).
                 ii.pv_uci = build_pv_uci(board, tt_, iter_best_move, /*max_len=*/16);
@@ -734,6 +983,16 @@ namespace fast_engine
         result.razor_cutoffs = total_stats.razor_cutoffs;
         result.legal_movegen_calls = total_stats.legal_movegen_calls;
         result.legal_moves_generated = total_stats.legal_moves_generated;
+        result.aspiration_retries_total = total_aspiration_retries;
+        result.aspiration_fail_lows_total = total_aspiration_fail_lows;
+        result.aspiration_fail_highs_total = total_aspiration_fail_highs;
+        result.final_aspiration_retries = final_root_telemetry.aspiration_retries;
+        result.final_aspiration_fail_lows = final_root_telemetry.aspiration_fail_lows;
+        result.final_aspiration_fail_highs = final_root_telemetry.aspiration_fail_highs;
+        result.final_score_jump = final_root_telemetry.score_jump;
+        result.final_bestmove_gap = final_root_telemetry.best_move_gap;
+        result.final_bestmove_subtree_share = final_root_telemetry.best_move_subtree_share;
+        result.final_root_tt_quality = final_root_telemetry.root_tt_quality;
 
         return result.has_best_move;
     }

@@ -14,6 +14,15 @@
 namespace fast_engine
 {
 
+    enum RootTTQualityBucket : std::uint8_t
+    {
+        ROOT_TTQ_NONE = 0,
+        ROOT_TTQ_MOVE_ONLY = 1,
+        ROOT_TTQ_BOUND = 2,
+        ROOT_TTQ_DEEP = 3,
+        ROOT_TTQ_TRUSTED_PV = 4
+    };
+
     // -----------------------------
     // Search output structures
     // -----------------------------
@@ -62,6 +71,18 @@ namespace fast_engine
         std::uint64_t legal_movegen_calls = 0;
         std::uint64_t legal_moves_generated = 0;
 
+        int aspiration_retries_total = 0;
+        int aspiration_fail_lows_total = 0;
+        int aspiration_fail_highs_total = 0;
+
+        int final_aspiration_retries = 0;
+        int final_aspiration_fail_lows = 0;
+        int final_aspiration_fail_highs = 0;
+        Score final_score_jump = 0;
+        Score final_bestmove_gap = 0;
+        double final_bestmove_subtree_share = 0.0;
+        std::uint8_t final_root_tt_quality = ROOT_TTQ_NONE;
+
         bool is_mate = false;
         bool is_draw = false;
     };
@@ -85,6 +106,14 @@ namespace fast_engine
 
         bool is_mate = false;
         bool is_draw = false;
+
+        int aspiration_retries = 0;
+        int aspiration_fail_lows = 0;
+        int aspiration_fail_highs = 0;
+        Score score_jump = 0;
+        Score best_move_gap = 0;
+        double best_move_subtree_share = 0.0;
+        std::uint8_t root_tt_quality = ROOT_TTQ_NONE;
 
         // Principal variation in UCI move strings (space-separated). May be empty.
         std::string pv_uci;

@@ -141,6 +141,7 @@ namespace fast_engine
         out.flag = static_cast<TTFlag>(best->flag);
         out.value = static_cast<Score>(best->value_cp);
         out.static_eval = static_cast<Score>(best->static_eval_cp);
+        out.current_generation = (best->gen == gen_);
 
         out.hasMove = (best->hasMove != 0);
         if (out.hasMove)
