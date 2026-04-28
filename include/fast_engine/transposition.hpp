@@ -87,6 +87,7 @@ namespace fast_engine
         std::size_t mask_ = 0;             // bucket index mask (power-of-two)
         std::size_t capacity_entries_ = 0; // buckets * CLUSTER_SIZE
         std::uint8_t gen_ = 1;
+        std::uint8_t clear_gen_ = 1;
 
         static std::uint32_t key_signature32(std::uint64_t key)
         {
@@ -113,6 +114,10 @@ namespace fast_engine
             const int d = std::clamp(depth, 0, 63);
             return static_cast<std::uint8_t>((static_cast<std::uint8_t>(flag) << 6) | static_cast<std::uint8_t>(d));
         }
+
+        bool generation_valid(std::uint8_t gen) const;
+        void hard_clear();
+        void advance_generation();
     };
 
 } // namespace fast_engine

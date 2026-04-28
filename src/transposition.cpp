@@ -40,6 +40,7 @@ namespace fast_engine
         capacity_entries_ = buckets * static_cast<std::size_t>(CLUSTER_SIZE);
 
         gen_ = 1; // new table: reset generation
+        clear_gen_ = 1;
     }
     std::size_t TranspositionTable::entries_for_mb(std::size_t mb)
     {
@@ -73,30 +74,44 @@ namespace fast_engine
         const std::size_t bytes = buckets * sizeof(Bucket);
         return bytes / (1024ULL * 1024ULL);
     }
-    void TranspositionTable::clear()
+    bool TranspositionTable::generation_valid(std::uint8_t gen) const
     {
-        // O(1) clear: advance generation. Old entries become "invalid".
-        ++gen_;
+        return gen != 0 && gen >= clear_gen_ && gen <= gen_;
+    }
 
-        // If we wrapped, do a real wipe once every 255 clears.
-        if (gen_ == 0)
+    void TranspositionTable::hard_clear()
+    {
+        for (auto &b : table_)
         {
-            gen_ = 1;
-            for (auto &b : table_)
+            for (auto &e : b.e)
             {
-                for (auto &e : b.e)
-                {
-                    e = PackedEntry{};
-                }
+                e = PackedEntry{};
             }
         }
+        gen_ = 1;
+        clear_gen_ = 1;
+    }
+
+    void TranspositionTable::advance_generation()
+    {
+        ++gen_;
+        if (gen_ == 0)
+            hard_clear();
+    }
+
+    void TranspositionTable::clear()
+    {
+        // O(1) logical clear: entries from earlier generations are no longer probeable.
+        // A hard wipe is still required on 8-bit generation wrap to avoid aliasing.
+        advance_generation();
+        clear_gen_ = gen_;
     }
 
     void TranspositionTable::new_search()
     {
-        ++gen_;
-        if (gen_ == 0)
-            gen_ = 1;
+        // Keep post-clear older entries probeable between searches, but wipe on wrap so
+        // a 255-search-old entry can never become "current" again by generation aliasing.
+        advance_generation();
     }
 
     std::optional<TTEntry> TranspositionTable::probe(std::uint64_t key) const
@@ -114,6 +129,8 @@ namespace fast_engine
         for (const auto &pe : b.e)
         {
             if (entry_empty(pe))
+                continue;
+            if (!generation_valid(pe.gen))
                 continue;
             if (pe.key32 != sig)
                 continue;
