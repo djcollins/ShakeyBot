@@ -68,6 +68,13 @@ namespace fast_engine
         std::uint64_t razor_attempts = 0;
         std::uint64_t razor_cutoffs = 0;
 
+        std::uint64_t probcut_nodes = 0;
+        std::uint64_t probcut_candidates = 0;
+        std::uint64_t probcut_see_rejects = 0;
+        std::uint64_t probcut_qs_passes = 0;
+        std::uint64_t probcut_searches = 0;
+        std::uint64_t probcut_cutoffs = 0;
+
         std::uint64_t legal_movegen_calls = 0;
         std::uint64_t legal_moves_generated = 0;
 

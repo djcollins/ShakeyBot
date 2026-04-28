@@ -91,6 +91,7 @@ namespace fast_engine
             }
         }
     }
+
     void TranspositionTable::new_search()
     {
         ++gen_;
@@ -104,7 +105,7 @@ namespace fast_engine
             return std::nullopt;
 
         const std::size_t idx = static_cast<std::size_t>(key) & mask_;
-        const std::uint16_t sig = key_signature16(key);
+        const std::uint32_t sig = key_signature32(key);
 
         const Bucket &b = table_[idx];
         const PackedEntry *best = nullptr;
@@ -112,15 +113,15 @@ namespace fast_engine
 
         for (const auto &pe : b.e)
         {
-            if (pe.depth < 0)
+            if (entry_empty(pe))
                 continue;
-            if (pe.key16 != sig)
+            if (pe.key32 != sig)
                 continue;
 
-            int q = static_cast<int>(pe.depth) * 8;
-            if (pe.flag == TT_EXACT)
+            int q = entry_depth(pe) * 8;
+            if (entry_flag(pe) == TT_EXACT)
                 q += 4;
-            if (pe.hasMove)
+            if (pe.move16 != chess::Move::NO_MOVE)
                 q += 1;
             if (pe.gen == gen_)
                 q += 1024;
@@ -137,13 +138,13 @@ namespace fast_engine
 
         TTEntry out;
         out.key = key;
-        out.depth = static_cast<int>(best->depth);
-        out.flag = static_cast<TTFlag>(best->flag);
+        out.depth = entry_depth(*best);
+        out.flag = entry_flag(*best);
         out.value = static_cast<Score>(best->value_cp);
         out.static_eval = static_cast<Score>(best->static_eval_cp);
         out.current_generation = (best->gen == gen_);
 
-        out.hasMove = (best->hasMove != 0);
+        out.hasMove = (best->move16 != chess::Move::NO_MOVE);
         if (out.hasMove)
             out.bestMove = chess::Move(best->move16);
         return out;
@@ -155,7 +156,7 @@ namespace fast_engine
             return;
 
         const std::size_t idx = static_cast<std::size_t>(entry.key) & mask_;
-        const std::uint16_t sig = key_signature16(entry.key);
+        const std::uint32_t sig = key_signature32(entry.key);
 
         // D: store score as centipawns (int), not double.
         const std::int32_t vcp = static_cast<std::int32_t>(entry.value);
@@ -165,13 +166,11 @@ namespace fast_engine
         auto write = [&](PackedEntry &pe)
         {
             pe.gen = gen_;
-            pe.key16 = sig;
-            pe.depth = static_cast<std::int8_t>(std::clamp(entry.depth, 0, 127));
-            pe.flag = static_cast<std::uint8_t>(entry.flag);
+            pe.key32 = sig;
+            pe.depth_flag = pack_depth_flag(entry.depth, entry.flag);
             pe.value_cp = vcp;
             pe.static_eval_cp = static_cast<std::int32_t>(entry.static_eval);
 
-            pe.hasMove = entry.hasMove ? 1 : 0;
             pe.move16 = entry.hasMove ? entry.bestMove.move() : chess::Move::NO_MOVE;
         };
 
@@ -180,18 +179,19 @@ namespace fast_engine
         {
             if (pe.gen != gen_)
                 continue;
-            if (pe.depth < 0)
+            if (entry_empty(pe))
                 continue;
-            if (pe.key16 != sig)
+            if (pe.key32 != sig)
                 continue;
 
-            const int oldDepth = static_cast<int>(pe.depth);
-            const bool oldExact = (pe.flag == TT_EXACT);
+            const int oldDepth = entry_depth(pe);
+            const int newDepth = std::clamp(entry.depth, 0, 63);
+            const bool oldExact = (entry_flag(pe) == TT_EXACT);
             const bool newExact = (entry.flag == TT_EXACT);
 
             const bool replace =
-                (entry.depth > oldDepth) ||
-                (entry.depth == oldDepth && newExact && !oldExact);
+                (newDepth > oldDepth) ||
+                (newDepth == oldDepth && newExact && !oldExact);
 
             if (replace)
             {
@@ -202,9 +202,8 @@ namespace fast_engine
                 // Keep old eval, but allow best-move fill-in if old had none.
                 if (entry.static_eval != TT_NO_STATIC_EVAL && pe.static_eval_cp == TT_NO_STATIC_EVAL)
                     pe.static_eval_cp = static_cast<std::int32_t>(entry.static_eval);
-                if (entry.hasMove && pe.hasMove == 0)
+                if (entry.hasMove && pe.move16 == chess::Move::NO_MOVE)
                 {
-                    pe.hasMove = 1;
                     pe.move16 = entry.bestMove.move();
                 }
             }
@@ -214,7 +213,7 @@ namespace fast_engine
         // 2) Prefer an invalid/old-gen/empty slot first (age/generation).
         for (auto &pe : b.e)
         {
-            if (pe.gen != gen_ || pe.depth < 0)
+            if (pe.gen != gen_ || entry_empty(pe))
             {
                 write(pe);
                 return;
@@ -227,20 +226,20 @@ namespace fast_engine
             // Lower => more replaceable.
             //
             // Critical: stale generations must be replaced first. Otherwise a cluster can
-            // get "poisoned" by high-depth entries from old generations that are never
-            // probed (probe() filters by gen_), shrinking the effective TT dramatically.
+            // get "poisoned" by high-depth entries from invalid generations, shrinking
+            // the effective TT dramatically.
             //
             // Order of preference:
             //   1) empty slots
             //   2) stale-generation entries
             //   3) shallow / non-exact / no-move entries
-            if (pe.depth < 0)
+            if (entry_empty(pe))
                 return -1000000; // empty
 
-            int q = static_cast<int>(pe.depth) * 4;
-            if (pe.flag == TT_EXACT)
+            int q = entry_depth(pe) * 4;
+            if (entry_flag(pe) == TT_EXACT)
                 q += 2;
-            if (pe.hasMove)
+            if (pe.move16 != chess::Move::NO_MOVE)
                 q += 1;
 
             if (pe.gen != gen_)

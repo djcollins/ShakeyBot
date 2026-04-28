@@ -134,6 +134,7 @@ Score negamax(chess::Board &board,
     int tt_entry_depth = 0;
     TTFlag tt_entry_flag = TT_UPPERBOUND;
     Score tt_entry_value = 0;
+    bool tt_entry_current = false;
     Score tt_static_eval = TT_NO_STATIC_EVAL;
     // --- Draws / repetition ---
     // IMPORTANT: only mark stats.is_draw at ROOT (ply == 0). Deep repetitions should
@@ -186,6 +187,7 @@ Score negamax(chess::Board &board,
             tt_entry_depth = e.depth;
             tt_entry_flag = e.flag;
             tt_entry_value = tt_value;
+            tt_entry_current = e.current_generation;
             if (tt_has_static_eval(e))
                 tt_static_eval = e.static_eval;
             if (e.hasMove)
@@ -321,13 +323,18 @@ Score negamax(chess::Board &board,
     const Score node_corr_eval = corrected_static_eval_from_raw(raw_static_eval, board, config);
     if (0 <= ply && ply <= MAX_PLY)
         search_stack[ply].in_check = in_check;
+    const bool excluded_move_active = exclude_this_node;
+    // Singular-extension verification answers one narrow question: can any other move
+    // reach the verification bound? Do not let local forward-pruning skip those alternatives.
+    const bool normal_selective_pruning = !excluded_move_active;
     // --- Razoring (very conservative; depth 2-3 only; null-window only) ---
     // Trigger: if static-eval is sufficiently below alpha, do a null-window qsearch probe.
     // If the probe also fails low, we can return early and avoid a full ply expansion.
     if (config.use_razoring &&
-        config.use_quiescence &&
+        use_quiescence &&
         is_null_window &&
         !in_check &&
+        !excluded_move_active &&
         ply > 0 &&
         (depth == 2 || depth == 3) &&
         allow_razoring_by_material(board) &&
@@ -336,7 +343,7 @@ Score negamax(chess::Board &board,
         alpha > -MATE_BOUND)
     {
         Score se = node_corr_eval;
-        const Score margin = static_cast<Score>(460 + 310 * depth * depth); // TO BE TUNED
+        const Score margin = static_cast<Score>((depth == 2) ? config.razor_margin_d2 : config.razor_margin_d3);
         if (se + margin <= alpha)
         {
             ++stats.razor_attempts;
@@ -358,7 +365,6 @@ Score negamax(chess::Board &board,
     // Null-move pruning is intended for cut-nodes (null-window).
     // Applying it in PV / wide-window nodes (incl. root under aspiration) can cause tactical
     // oversights and unstable PV selection.
-    const bool excluded_move_active = (g_excluded_move_ply == ply && g_excluded_move != chess::Move::NO_MOVE);
     const bool prev_was_null = (ply > 0 && search_stack[ply].move == chess::Move::NO_MOVE);
     if (config.use_null_move_pruning && g_allow_null_move &&
         is_null_window &&
@@ -474,19 +480,28 @@ Score negamax(chess::Board &board,
     // --- ProbCut (null-window only) ---
     // If a reduced search on a strong capture returns a value well above beta, we can prune.
     const Score probCutBeta = beta + static_cast<Score>(185);
+    const int probCutDepth = depth - 4;
+    const bool probcut_tt_upper = (tt_entry_flag == TT_UPPERBOUND || tt_entry_flag == TT_EXACT);
+    const int probcut_tt_depth_required = tt_entry_current ? std::max(probCutDepth, 1) : depth;
+    const bool probcut_contradicted_by_tt =
+        have_tt_entry &&
+        probcut_tt_upper &&
+        tt_entry_depth >= probcut_tt_depth_required &&
+        tt_entry_value < probCutBeta;
     if (config.use_probcut &&
-        depth >= 3 &&
+        probCutDepth >= 1 &&
         is_null_window &&
+        normal_selective_pruning &&
         !in_check &&
         beta < MATE_BOUND && alpha > -MATE_BOUND &&
-        !(have_tt_entry && tt_entry_value < probCutBeta))
+        !probcut_contradicted_by_tt)
     {
-        const int probCutDepth = std::max(depth - 4, 0);
         // Guide candidate selection by using a SEE threshold
         // derived from (probCutBeta - staticEval).
         Score pc_static = node_corr_eval;
-        const int minSeeCp = std::max(0, static_cast<int>(probCutBeta - pc_static));
-        constexpr int PROBCUT_MAX_TRIES = 8;
+        const int minSeeCp = std::max(40, static_cast<int>(probCutBeta - pc_static) + 25);
+        constexpr int PROBCUT_MAX_TRIES = 6;
+        ++stats.probcut_nodes;
         chess::Movelist caps;
         chess::movegen::legalmoves<chess::movegen::MoveGenType::CAPTURE>(caps, board);
         if (!caps.empty())
@@ -497,17 +512,24 @@ Score negamax(chess::Board &board,
             for (int i = 0; i < tries; ++i)
             {
                 const chess::Move m = caps[i];
+                ++stats.probcut_candidates;
                 // Skip losing / insufficient captures.
-                if (see_cp(board, m) < minSeeCp)
+                const int move_see = see_cp(board, m);
+                if (move_see < minSeeCp)
+                {
+                    ++stats.probcut_see_rejects;
                     continue;
+                }
                 if (ply + 1 <= MAX_PLY)
                     set_search_stack_entry(ply + 1, board, m, i + 1);
                 board.makeMove(m);
                 // Preliminary qsearch verification .
                 Score score = -qsearch(board, ply + 1, -probCutBeta, -probCutBeta + ONE_CP, stats, config, tt, control);
                 // If the qsearch held, perform the reduced-depth search.
-                if (score >= probCutBeta && probCutDepth > 0)
+                if (score >= probCutBeta)
                 {
+                    ++stats.probcut_qs_passes;
+                    ++stats.probcut_searches;
                     score = -negamax(board,
                                      probCutDepth,
                                      ply + 1,
@@ -526,11 +548,11 @@ Score negamax(chess::Board &board,
                     return 0;
                 if (score >= probCutBeta)
                 {
-                    // Store a lower bound at an effective depth  (probCutDepth + 1).
+                    ++stats.probcut_cutoffs;
+                    // Store only the verified reduced-search depth, not the parent depth.
                     if (tt_here)
                     {
-                        const int store_depth = std::max(depth - 3, 0);
-                        TTEntry e(key, store_depth, TT_LOWERBOUND, to_tt_score(beta, ply), m, raw_static_eval);
+                        TTEntry e(key, probCutDepth, TT_LOWERBOUND, to_tt_score(beta, ply), m, raw_static_eval);
                         tt_here->store(e);
                     }
                     return beta; // fail-hard cutoff
@@ -763,6 +785,7 @@ Score negamax(chess::Board &board,
         // Cheap early exit for clearly losing late bad captures. Only consult givesCheck if the
         // capture is already a likely prune candidate from its SEE.
         if (is_null_window && ply > 0 && !in_check && depth <= 6 &&
+            normal_selective_pruning &&
             is_capture && !is_tt_move && is_badcap_stage)
         {
             constexpr int SEE_PRUNE_BASE_CP = 150;
@@ -774,7 +797,7 @@ Score negamax(chess::Board &board,
         }
         // After the futility_move_count threshold is reached, skip remaining quiet non-checking moves.
         // Do not skip TT moves, strategic critical pawn pushes, or checks.
-        if (skip_quiet_moves && is_quiet && !is_tt_move)
+        if (normal_selective_pruning && skip_quiet_moves && is_quiet && !is_tt_move)
         {
             if (!get_critical_pawn_push() && !gives_check())
                 continue;
@@ -973,7 +996,8 @@ Score negamax(chess::Board &board,
 
         bool history_prune_bad = false; // soft continuation-history pruning: late quiets with very poor cont12
 
-        if (is_null_window && ply > 0 && !in_check && have_best && board.hasNonPawnMaterial(board.sideToMove()) && is_quiet && !gives_chk)
+        if (normal_selective_pruning &&
+            is_null_window && ply > 0 && !in_check && have_best && board.hasNonPawnMaterial(board.sideToMove()) && is_quiet && !gives_chk)
         {
             if (!critical_pawn_push && ENABLE_HISTORY_PRUNING && depth <= 6 && quiet_index >= 5 && cont12_scaled < -6500 * depth)
             {
@@ -1019,6 +1043,7 @@ Score negamax(chess::Board &board,
         if (ENABLE_MCP && !ENABLE_LMP &&
             config.use_move_count_pruning &&
             is_null_window &&
+            normal_selective_pruning &&
             !in_check &&
             depth >= 2 &&
             depth <= MCP_MAX_DEPTH &&
@@ -1055,7 +1080,8 @@ Score negamax(chess::Board &board,
         if (is_quiet)
             ++quiet_searched;
         // Once moveCount reaches the threshold, skip remaining quiet non-checking moves at this node.
-        if (is_null_window && ply > 0 && have_best && board.hasNonPawnMaterial(board.sideToMove()) && !skip_quiet_moves && is_quiet && quiet_searched >= 4 && quiet_searched >= sf_futility_move_count(improving, depth) + 2)
+        if (normal_selective_pruning &&
+            is_null_window && ply > 0 && have_best && board.hasNonPawnMaterial(board.sideToMove()) && !skip_quiet_moves && is_quiet && quiet_searched >= 4 && quiet_searched >= sf_futility_move_count(improving, depth) + 2)
         {
             skip_quiet_moves = true;
         }

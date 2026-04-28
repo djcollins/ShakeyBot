@@ -54,8 +54,8 @@ namespace fast_engine
 
         // Razoring (conservative)
         bool use_razoring = true;
-        int razor_margin_d2 = 250; // centipawns
-        int razor_margin_d3 = 500; // centipawns
+        int razor_margin_d2 = 900;  // centipawns
+        int razor_margin_d3 = 1800; // centipawns
 
         bool use_move_count_pruning = true;
 

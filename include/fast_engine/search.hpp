@@ -62,6 +62,14 @@ namespace fast_engine
         std::uint64_t razor_attempts = 0; // nodes where razoring was evaluated (preconditions passed)
         std::uint64_t razor_cutoffs = 0;  // nodes where razoring triggered a cutoff
 
+        // ProbCut diagnostics. Telemetry only; no search behavior should depend on these.
+        std::uint64_t probcut_nodes = 0;       // nodes where ProbCut preconditions passed
+        std::uint64_t probcut_candidates = 0;  // capture candidates considered by ProbCut
+        std::uint64_t probcut_see_rejects = 0; // candidates rejected by SEE threshold
+        std::uint64_t probcut_qs_passes = 0;   // candidates whose qsearch reached probCutBeta
+        std::uint64_t probcut_searches = 0;    // reduced-depth searches launched after qsearch pass
+        std::uint64_t probcut_cutoffs = 0;     // actual ProbCut beta cutoffs
+
         // Full legal-move generation diagnostics
         std::uint64_t legal_movegen_calls = 0;
         std::uint64_t legal_moves_generated = 0;

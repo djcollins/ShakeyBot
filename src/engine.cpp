@@ -713,6 +713,12 @@ namespace fast_engine
 
                 total_stats.razor_attempts += iter_stats.razor_attempts;
                 total_stats.razor_cutoffs += iter_stats.razor_cutoffs;
+                total_stats.probcut_nodes += iter_stats.probcut_nodes;
+                total_stats.probcut_candidates += iter_stats.probcut_candidates;
+                total_stats.probcut_see_rejects += iter_stats.probcut_see_rejects;
+                total_stats.probcut_qs_passes += iter_stats.probcut_qs_passes;
+                total_stats.probcut_searches += iter_stats.probcut_searches;
+                total_stats.probcut_cutoffs += iter_stats.probcut_cutoffs;
                 total_stats.legal_movegen_calls += iter_stats.legal_movegen_calls;
                 total_stats.legal_moves_generated += iter_stats.legal_moves_generated;
 
@@ -804,6 +810,12 @@ namespace fast_engine
                 total_stats.badcap_generated += iter_stats.badcap_generated;
                 total_stats.razor_attempts += iter_stats.razor_attempts;
                 total_stats.razor_cutoffs += iter_stats.razor_cutoffs;
+                total_stats.probcut_nodes += iter_stats.probcut_nodes;
+                total_stats.probcut_candidates += iter_stats.probcut_candidates;
+                total_stats.probcut_see_rejects += iter_stats.probcut_see_rejects;
+                total_stats.probcut_qs_passes += iter_stats.probcut_qs_passes;
+                total_stats.probcut_searches += iter_stats.probcut_searches;
+                total_stats.probcut_cutoffs += iter_stats.probcut_cutoffs;
                 total_stats.legal_movegen_calls += iter_stats.legal_movegen_calls;
                 total_stats.legal_moves_generated += iter_stats.legal_moves_generated;
                 total_stats.is_mate = iter_stats.is_mate;
@@ -981,6 +993,12 @@ namespace fast_engine
         result.pv_last_change_depth = total_stats.pv_last_change_depth;
         result.razor_attempts = total_stats.razor_attempts;
         result.razor_cutoffs = total_stats.razor_cutoffs;
+        result.probcut_nodes = total_stats.probcut_nodes;
+        result.probcut_candidates = total_stats.probcut_candidates;
+        result.probcut_see_rejects = total_stats.probcut_see_rejects;
+        result.probcut_qs_passes = total_stats.probcut_qs_passes;
+        result.probcut_searches = total_stats.probcut_searches;
+        result.probcut_cutoffs = total_stats.probcut_cutoffs;
         result.legal_movegen_calls = total_stats.legal_movegen_calls;
         result.legal_moves_generated = total_stats.legal_moves_generated;
         result.aspiration_retries_total = total_aspiration_retries;

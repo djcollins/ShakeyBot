@@ -357,7 +357,7 @@ static void handle_setoption(const std::string &line,
         if (!value.empty())
         {
             int v = std::stoi(value);
-            v = std::max(0, std::min(1000, v));
+            v = std::max(0, std::min(3000, v));
             config.razor_margin_d2 = v;
         }
     }
@@ -366,7 +366,7 @@ static void handle_setoption(const std::string &line,
         if (!value.empty())
         {
             int v = std::stoi(value);
-            v = std::max(0, std::min(2000, v));
+            v = std::max(0, std::min(5000, v));
             config.razor_margin_d3 = v;
         }
     }
@@ -840,6 +840,12 @@ static void print_search_output(UciIO &io,
             << " lmgAvg=" << std::setprecision(2) << lmg_avg
             << " razorAttempts=" << result.razor_attempts
             << " razorCutoffs=" << result.razor_cutoffs
+            << " probcutNodes=" << result.probcut_nodes
+            << " probcutCandidates=" << result.probcut_candidates
+            << " probcutSeeRejects=" << result.probcut_see_rejects
+            << " probcutQsPasses=" << result.probcut_qs_passes
+            << " probcutSearches=" << result.probcut_searches
+            << " probcutCutoffs=" << result.probcut_cutoffs
             << " aspRtot=" << result.aspiration_retries_total
             << " aspFLtot=" << result.aspiration_fail_lows_total
             << " aspFHtot=" << result.aspiration_fail_highs_total
@@ -1163,8 +1169,8 @@ int main()
             io.send("option name Hash type spin default " + std::to_string(std::lround(config.hash_mb)) + " min 1 max 4096");
             io.send("option name UseQuiescence type check default " + std::string(as_bool(config.use_quiescence)));
             io.send("option name UseRazoring type check default " + std::string(as_bool(config.use_razoring)));
-            io.send("option name RazorMarginD2 type spin default " + std::to_string(config.razor_margin_d2) + " min 0 max 1000");
-            io.send("option name RazorMarginD3 type spin default " + std::to_string(config.razor_margin_d3) + " min 0 max 2000");
+            io.send("option name RazorMarginD2 type spin default " + std::to_string(config.razor_margin_d2) + " min 0 max 3000");
+            io.send("option name RazorMarginD3 type spin default " + std::to_string(config.razor_margin_d3) + " min 0 max 5000");
 
             // Phase-1 toggles (for A/B isolation)
             io.send("option name UseHistoryHeuristic type check default " + std::string(as_bool(config.use_history_heuristic)));

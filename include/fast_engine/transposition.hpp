@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -69,12 +70,10 @@ namespace fast_engine
         {
             std::int32_t value_cp = 0; // centipawns, already mate-adjusted
             std::int32_t static_eval_cp = TT_NO_STATIC_EVAL; // raw static eval or sentinel
-            std::uint16_t key16 = 0;   // key signature (top bits)
+            std::uint32_t key32 = 0;   // key signature (top bits)
             std::uint16_t move16 = 0;  // chess::Move raw (0 == NO_MOVE)
-            std::int8_t depth = -1;    // -1 == empty
-            std::uint8_t flag = 0;     // TTFlag
+            std::uint8_t depth_flag = 0xFF; // low 6 bits depth, high 2 bits TTFlag, 0xFF == empty
             std::uint8_t gen = 0;      // generation tag
-            std::uint8_t hasMove = 0;  // 0/1
         };
 
         static_assert(sizeof(PackedEntry) == 16, "PackedEntry should be 16 bytes");
@@ -89,9 +88,30 @@ namespace fast_engine
         std::size_t capacity_entries_ = 0; // buckets * CLUSTER_SIZE
         std::uint8_t gen_ = 1;
 
-        static std::uint16_t key_signature16(std::uint64_t key)
+        static std::uint32_t key_signature32(std::uint64_t key)
         {
-            return static_cast<std::uint16_t>(key >> 48);
+            return static_cast<std::uint32_t>(key >> 32);
+        }
+
+        static bool entry_empty(const PackedEntry &entry)
+        {
+            return entry.depth_flag == 0xFF;
+        }
+
+        static int entry_depth(const PackedEntry &entry)
+        {
+            return static_cast<int>(entry.depth_flag & 0x3F);
+        }
+
+        static TTFlag entry_flag(const PackedEntry &entry)
+        {
+            return static_cast<TTFlag>(entry.depth_flag >> 6);
+        }
+
+        static std::uint8_t pack_depth_flag(int depth, TTFlag flag)
+        {
+            const int d = std::clamp(depth, 0, 63);
+            return static_cast<std::uint8_t>((static_cast<std::uint8_t>(flag) << 6) | static_cast<std::uint8_t>(d));
         }
     };
 
