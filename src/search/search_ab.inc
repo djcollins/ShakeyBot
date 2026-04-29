@@ -621,27 +621,31 @@ Score negamax(chess::Board &board,
     // --- Move ordering: MovePicker staged ordering ---
     const chess::Move *tt_move_ptr = have_tt_best ? &tt_best_move : nullptr;
     MovePicker picker(board, tt_move_ptr, killer_moves[0][ply], killer_moves[1][ply], ply, depth, config);
-    // No legal moves: checkmate or stalemate
-    if (!picker.has_any_legal_moves())
+    int legal_count_up_to_two = -1;
+    auto legal_move_count_up_to_two = [&]() noexcept -> int
     {
-        if (board.inCheck())
+        if (legal_count_up_to_two < 0)
+            legal_count_up_to_two = count_legal_moves_up_to(board, 2);
+        return legal_count_up_to_two;
+    };
+    // If the side to move has only one legal move, the line is forcing.
+    const bool one_reply_extension_candidate =
+        ply > 0 &&
+        depth >= ONE_REPLY_EXT_MIN_DEPTH && depth <= ONE_REPLY_EXT_MAX_DEPTH &&
+        ply <= ONE_REPLY_EXT_MAX_PLY;
+    if (one_reply_extension_candidate)
+    {
+        const int legal_count = legal_move_count_up_to_two();
+        if (legal_count == 0)
         {
-            return -MATE_SCORE + ply; // losing mate, distance-aware
-        }
-        else
-        {
+            if (in_check)
+                return -MATE_SCORE + ply; // losing mate, distance-aware
             if (ply == 0)
                 stats.is_draw = true;
             return draw_score_stm(board, config);
         }
-    }
-    // If the side to move has only one legal move, the line is forcing.
-    if (ply > 0 &&
-        depth >= ONE_REPLY_EXT_MIN_DEPTH && depth <= ONE_REPLY_EXT_MAX_DEPTH &&
-        ply <= ONE_REPLY_EXT_MAX_PLY &&
-        !picker.has_multiple_legal_moves())
-    {
-        depth += 1;
+        if (legal_count == 1)
+            depth += 1;
     }
     // "Improving" signal for LMR: compare static eval with same-side-to-move eval two plies earlier.
     // We compute this once per node and store it for (ply-2) lookups.
@@ -675,7 +679,8 @@ Score negamax(chess::Board &board,
         beta < MATE_BOUND &&
         alpha > -MATE_BOUND &&
         node_static_eval < MATE_BOUND &&
-        node_static_eval - child_futility_margin(depth, improving) >= beta)
+        node_static_eval - child_futility_margin(depth, improving) >= beta &&
+        legal_move_count_up_to_two() > 0)
     {
         return node_static_eval;
     }
@@ -721,6 +726,7 @@ Score negamax(chess::Board &board,
 
     // --- Principal Variation Search loop with LMR ---
     chess::Move move{};
+    bool saw_legal_move = false;
     for (int mi = 0; picker.next(move); ++mi)
     {
         if (!badcap_generated_recorded && picker.capture_stages_ready())
@@ -732,6 +738,7 @@ Score negamax(chess::Board &board,
                 stats.badcap_generated += static_cast<std::uint64_t>(picker.bad_caps.count);
             }
         }
+        saw_legal_move = true;
         // When running singular-extension verification, exclude the specified move at this node only.
         if (g_excluded_move_ply == ply && g_excluded_move != chess::Move::NO_MOVE && move == g_excluded_move)
             continue;
@@ -866,7 +873,7 @@ Score negamax(chess::Board &board,
             !in_check &&
             ply > 0 &&
             depth >= SINGULAR_EXT_MIN_DEPTH &&
-            picker.has_multiple_legal_moves() &&
+            legal_move_count_up_to_two() > 1 &&
             tt_entry_flag == TT_EXACT &&
             tt_entry_depth >= depth - 1 &&
             std::abs(tt_entry_value) < MATE_BOUND)
@@ -978,8 +985,8 @@ Score negamax(chess::Board &board,
             //   history_ordering_mult=2 => main part = 2*main_hist_score
             //   continuation_ordering_mult=2 => cont part = 1*cont_score
             main_hist_scaled = config.history_ordering_mult * main_hist_score;
-            cont12_scaled = static_cast<int>((static_cast<std::int64_t>(config.continuation_ordering_mult) * cont12_score) / 2);
-            const int cont_scaled = static_cast<int>((static_cast<std::int64_t>(config.continuation_ordering_mult) * cont_score) / 2);
+            cont12_scaled = scale_continuation_history(config.continuation_ordering_mult, cont12_score);
+            const int cont_scaled = scale_continuation_history(config.continuation_ordering_mult, cont_score);
 
             quiet_local_hist = main_hist_scaled + cont12_scaled;
             quiet_stat_score = quiet_local_hist - 3271;
@@ -1266,6 +1273,14 @@ Score negamax(chess::Board &board,
             }
             break;
         }
+    }
+    if (!saw_legal_move)
+    {
+        if (in_check)
+            return -MATE_SCORE + ply;
+        if (ply == 0)
+            stats.is_draw = true;
+        return draw_score_stm(board, config);
     }
     // --- History updates ---
     // Apply learning once per node, based on the best move and the set of searched-but-not-best moves.

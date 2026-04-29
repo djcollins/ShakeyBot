@@ -13,6 +13,25 @@
 // Goal: reduce per-node sorting work and avoid scoring quiet moves unless needed,
 // improving nps while keeping ordering quality high.
 // -------------------------------------------------------------------------
+static inline int count_legal_moves_up_to(const chess::Board &board, const int limit) noexcept
+{
+    if (limit <= 0)
+        return 0;
+
+    chess::Movelist captures;
+    chess::movegen::legalmoves<chess::movegen::MoveGenType::CAPTURE>(captures, board);
+
+    int count = static_cast<int>(captures.size());
+    if (count >= limit)
+        return limit;
+
+    chess::Movelist quiets;
+    chess::movegen::legalmoves<chess::movegen::MoveGenType::QUIET>(quiets, board);
+    count += static_cast<int>(quiets.size());
+
+    return std::min(count, limit);
+}
+
 struct MovePicker
 {
     static constexpr int NO_SEE_SCORE = std::numeric_limits<int>::min();

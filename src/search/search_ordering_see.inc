@@ -26,6 +26,11 @@ inline int victim_pt_index(const chess::Board &board, const chess::Move &move) n
 }
 // Heuristic move score (TT move, promotions, MVV-LVA captures, checks).
 inline int see_cp(const chess::Board &board, const chess::Move &move);
+static inline int scale_continuation_history(const double multiplier, const int value) noexcept
+{
+    return static_cast<int>((multiplier * static_cast<double>(value)) / 2.0);
+}
+
 static int score_move(const chess::Board &board,
                       const chess::Move &move,
                       const chess::Move *tt_move_ptr,
@@ -133,7 +138,7 @@ static int score_move(const chess::Board &board,
                         v /= 3;
                     if (dist >= 3 && MULTI_CONT_SCALE_PCT != 100)
                         v = static_cast<int>((static_cast<std::int64_t>(v) * MULTI_CONT_SCALE_PCT) / 100);
-                    score += static_cast<int>((static_cast<std::int64_t>(config.continuation_ordering_mult) * v) / 2);
+                    score += scale_continuation_history(config.continuation_ordering_mult, v);
                 }
             }
         }
