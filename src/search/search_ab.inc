@@ -102,6 +102,7 @@ Score negamax(chess::Board &board,
     // Track max search depth reached (root-relative depth, not ply)
     // depth_reached is used for reporting only; keep it stable and meaningful.
     stats.depth_reached = std::max(stats.depth_reached, stats.depth_requested - depth);
+    const bool use_continuation_history = continuation_history_active(config);
     const bool leaf_to_qsearch = (use_quiescence && depth <= 0);
     if (!leaf_to_qsearch)
         stats.nodes++;
@@ -120,7 +121,8 @@ Score negamax(chess::Board &board,
         if (board.inCheck())
             return draw_score_stm(board, config);
         Score e = eval_stm_no_game_over(board, config);
-        e += corr_hist_probe(board, config);
+        if (correction_history_active(config))
+            e += corr_hist_probe(board, config);
         return e;
     }
     std::uint64_t key = 0;
@@ -241,7 +243,7 @@ Score negamax(chess::Board &board,
                                             update_main_history_entry(history_heur[s][f][t], bonus_tt);
                                             update_pawn_history_no_board(board, s, cur_pt, t, bonus_tt);
                                         }
-                                        if (config.use_continuation_history && ply > 0)
+                                        if (use_continuation_history && ply > 0)
                                         {
                                             const int cont_tt = (bonus_tt * 1004) / 1024; // TO BE TUNED
                                             static constexpr std::array<int, 7> W = {0, 1102, 658, 325, 535, 125, 475};
@@ -270,7 +272,7 @@ Score negamax(chess::Board &board,
                             }
                             // 2) Parent early quiet move continuation penalty
                             // Condition: prevSq != NONE, (ss-1)->moveCount <= 3, and !priorCapture
-                            if (config.use_continuation_history && ply > 0 && search_stack[ply].parent_move_count <= 3 && !search_stack[ply].prior_capture)
+                            if (use_continuation_history && ply > 0 && search_stack[ply].parent_move_count <= 3 && !search_stack[ply].prior_capture)
                             {
                                 const chess::Move pm = search_stack[ply].move;
                                 if (pm != chess::Move::NO_MOVE)
@@ -928,14 +930,14 @@ Score negamax(chess::Board &board,
         int lmr_hist_score = 0;
         int main_hist_scaled = 0;
         int cont12_scaled = 0;
-        if (is_quiet && !gives_chk && (config.use_history_heuristic || config.use_continuation_history))
+        if (is_quiet && !gives_chk && (config.use_history_heuristic || use_continuation_history))
         {
             const int s = stm_index(board);
             const int f = move.from().index();
             const int t = move.to().index();
             if (config.use_history_heuristic)
                 main_hist_score = history_heur[s][f][t];
-            if (config.use_continuation_history)
+            if (use_continuation_history)
             {
                 const int cur_pt = pt_index(board.at(move.from()));
                 const int cur_to = t;
@@ -980,14 +982,14 @@ Score negamax(chess::Board &board,
             // Combined history term used for LMR adjustment.
             const int cont_score = cont12_score + contx_score;
 
-            // Apply configurable weighting so continuation doesn't over/under-drive ordering and LMR.
-            // Defaults preserve prior behavior:
-            //   history_ordering_mult=2 => main part = 2*main_hist_score
-            //   continuation_ordering_mult=2 => cont part = 1*cont_score
+            // Apply configurable weighting so history drives ordering and LMR only when enabled.
             main_hist_scaled = config.history_ordering_mult * main_hist_score;
-            cont12_scaled = scale_continuation_history(config.continuation_ordering_mult, cont12_score);
-            const int cont_scaled = scale_continuation_history(config.continuation_ordering_mult, cont_score);
-
+            int cont_scaled = 0;
+            if (use_continuation_history)
+            {
+                cont12_scaled = scale_continuation_history(config.continuation_ordering_mult, cont12_score);
+                cont_scaled = scale_continuation_history(config.continuation_ordering_mult, cont_score);
+            }
             quiet_local_hist = main_hist_scaled + cont12_scaled;
             quiet_stat_score = quiet_local_hist - 3271;
             move_hist_score = cont_scaled + main_hist_scaled;
@@ -1006,7 +1008,8 @@ Score negamax(chess::Board &board,
         if (normal_selective_pruning &&
             is_null_window && ply > 0 && !in_check && have_best && board.hasNonPawnMaterial(board.sideToMove()) && is_quiet && !gives_chk)
         {
-            if (!critical_pawn_push && ENABLE_HISTORY_PRUNING && depth <= 6 && quiet_index >= 5 && cont12_scaled < -6500 * depth)
+            if (use_continuation_history && !critical_pawn_push && ENABLE_HISTORY_PRUNING &&
+                depth <= 6 && quiet_index >= 5 && cont12_scaled < -6500 * depth)
             {
                 history_prune_bad = true;
             }
@@ -1306,17 +1309,21 @@ Score negamax(chess::Board &board,
         // These knobs affect learning deltas, not the ordering multipliers used in score_move().
         const bool quiet_beta_cutoff = (!best_capture_stage && best_score >= beta_window);
 
-// History update tuning: scale learning only when a QUIET move causes a beta cutoff.
-// These knobs affect learning deltas, not the ordering multipliers used in score_move().
-const double main_bonus_mult = quiet_beta_cutoff ? config.history_cutoff_bonus_mult : 1.0;
-const double main_neg_mult   = quiet_beta_cutoff ? config.history_neg_update_mult   : 1.0;
-const double cont_bonus_mult = quiet_beta_cutoff ? config.cont_cutoff_bonus_mult    : 1.0;
-const double cont_neg_mult   = quiet_beta_cutoff ? config.cont_neg_update_mult      : 1.0;
-
+        // History update tuning: scale learning only when a QUIET move causes a beta cutoff.
+        // Continuation update knobs are read only when continuation history is active.
+        const double main_bonus_mult = quiet_beta_cutoff ? config.history_cutoff_bonus_mult : 1.0;
+        const double main_neg_mult = quiet_beta_cutoff ? config.history_neg_update_mult : 1.0;
         const int main_bonus = static_cast<int>(std::lround(static_cast<double>(main_bonus_base) * main_bonus_mult));
-        const int cont_bonus = static_cast<int>(std::lround(static_cast<double>(cont_bonus_base) * cont_bonus_mult));
         const int main_malus = static_cast<int>(std::lround(static_cast<double>(main_malus_base) * main_neg_mult));
-        const int cont_malus = static_cast<int>(std::lround(static_cast<double>(cont_malus_base) * cont_neg_mult));
+        int cont_bonus = 0;
+        int cont_malus = 0;
+        if (use_continuation_history)
+        {
+            const double cont_bonus_mult = quiet_beta_cutoff ? config.cont_cutoff_bonus_mult : 1.0;
+            const double cont_neg_mult = quiet_beta_cutoff ? config.cont_neg_update_mult : 1.0;
+            cont_bonus = static_cast<int>(std::lround(static_cast<double>(cont_bonus_base) * cont_bonus_mult));
+            cont_malus = static_cast<int>(std::lround(static_cast<double>(cont_malus_base) * cont_neg_mult));
+        }
         // Quiet-history + continuation-history updates
         if (!best_capture_stage)
         {
@@ -1326,7 +1333,7 @@ const double cont_neg_mult   = quiet_beta_cutoff ? config.cont_neg_update_mult  
                 update_main_history_entry(history_heur[s][bf][bt], main_bonus);
                 update_pawn_history_no_board(board, s, best_pt, bt, main_bonus);
             }
-            if (config.use_continuation_history)
+            if (use_continuation_history)
             {
                 const int cur_pt = best_pt;
                 for (int i = 1; i <= 6; ++i)
@@ -1358,7 +1365,7 @@ const double cont_neg_mult   = quiet_beta_cutoff ? config.cont_neg_update_mult  
                     update_pawn_history_no_board(board, s, pt_index(board.at(qm.from())), qt, -main_malus);
                 }
             }
-            if (config.use_continuation_history)
+            if (use_continuation_history)
             {
                 for (int qi = 0; qi < quiet_tried_count; ++qi)
                 {
@@ -1407,7 +1414,7 @@ const double cont_neg_mult   = quiet_beta_cutoff ? config.cont_neg_update_mult  
             }
         }
         // Refutation penalty for early quiet parent moves.
-        if (config.use_continuation_history && ply > 0 && search_stack[ply].move != chess::Move::NO_MOVE && !search_stack[ply].prior_capture)
+        if (use_continuation_history && ply > 0 && search_stack[ply].move != chess::Move::NO_MOVE && !search_stack[ply].prior_capture)
         {
             const int parent_mc = search_stack[ply].parent_move_count;
             const int parent_tth = (search_stack[ply - 1].tt_hit ? 1 : 0);
@@ -1442,7 +1449,7 @@ const double cont_neg_mult   = quiet_beta_cutoff ? config.cont_neg_update_mult  
     // --- Correction history update (exact nodes only) ---
     // Update with the residual between searched score and raw static eval (no correction applied),
     // so future pruning gates can use static_eval + correction.
-    if (config.use_correction_history && !stats.stopped && !in_check &&
+    if (correction_history_active(config) && !stats.stopped && !in_check &&
         best_score > alpha_window && best_score < beta_window &&
         best_score < MATE_BOUND && best_score > -MATE_BOUND)
     {

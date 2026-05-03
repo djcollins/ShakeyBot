@@ -112,7 +112,7 @@ static int score_move(const chess::Board &board,
                 score += probe_pawn_history(board, stm, cur_pt, cur_to);
         }
         // Piece-aware continuation history (Raw sum; dist==5 downweighted; dist>=3 scaled by MULTI_CONT_SCALE_PCT)
-        if (config.use_continuation_history && config.continuation_ordering_mult)
+        if (continuation_history_active(config))
         {
             const int cur_pt = pt_index(board.at(move.from()));
             const int cur_to = move.to().index();

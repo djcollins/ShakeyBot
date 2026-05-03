@@ -139,6 +139,14 @@ inline Score from_tt_score(Score score, int ply)
     return score;
 }
 inline Score corr_hist_probe(const chess::Board &b, const EngineConfig &cfg) noexcept;
+inline bool correction_history_active(const EngineConfig &cfg) noexcept
+{
+    return cfg.use_correction_history && cfg.correction_history_scale > 0.0;
+}
+inline bool continuation_history_active(const EngineConfig &cfg) noexcept
+{
+    return cfg.use_continuation_history && cfg.continuation_ordering_mult > 0.0;
+}
 inline bool tt_has_static_eval(const TTEntry &entry) noexcept
 {
     return entry.static_eval != TT_NO_STATIC_EVAL;
@@ -147,7 +155,9 @@ inline Score corrected_static_eval_from_raw(Score raw_eval,
                                             const chess::Board &board,
                                             const EngineConfig &cfg) noexcept
 {
-    Score e = raw_eval + corr_hist_probe(board, cfg);
+    Score e = raw_eval;
+    if (correction_history_active(cfg))
+        e += corr_hist_probe(board, cfg);
 
     if (e >= MATE_BOUND)
         e = MATE_BOUND - ONE_CP;
@@ -698,7 +708,7 @@ inline void update_pawn_history_no_board(const chess::Board &b,
 }
 inline Score corr_hist_probe(const chess::Board &b, const EngineConfig &cfg) noexcept
 {
-    if (!cfg.use_correction_history || cfg.correction_history_scale <= 0.0)
+    if (!correction_history_active(cfg))
         return 0;
     const int s = stm_index(b);
     const int idx = corr_hist_index(b);
@@ -709,7 +719,7 @@ inline Score corr_hist_probe(const chess::Board &b, const EngineConfig &cfg) noe
 }
 inline void corr_hist_update(const chess::Board &b, const EngineConfig &cfg, Score residual_cp) noexcept
 {
-    if (!cfg.use_correction_history)
+    if (!correction_history_active(cfg))
         return;
     if (residual_cp > 200)
         residual_cp = 200;

@@ -12,7 +12,7 @@ namespace fast_engine
         // Phase-1 search ordering / pruning toggles (for clean A/B isolation)
         bool use_history_heuristic = true;
         bool use_capture_history = true;
-        bool use_continuation_history = true;
+        bool use_continuation_history = false;
         bool use_probcut = true;
         bool use_iid = true;
 
@@ -28,7 +28,7 @@ namespace fast_engine
         // History/continuation ordering multipliers (dimensionless). UCI options expose these as integers 0..300,
         // interpreted as (value / 100.0). Example: 150 -> 1.5x.
         double history_ordering_mult = 0.96;
-        double continuation_ordering_mult = 1.00;
+        double continuation_ordering_mult = 0.0;
         int capture_history_ordering_mult = 1;    // base multiplier for capture history
 
         // History update scheme tuning knobs (dimensionless). Exposed as UCI ints 0..300, interpreted as (value / 100.0).
@@ -37,9 +37,9 @@ namespace fast_engine
         double history_cutoff_bonus_mult = 2.00; // default 2.0x (UCI default 200)
         double history_neg_update_mult = 1.25;   // default 1.25x (UCI default 125)
         // Continuation-history update scheme tuning knobs (dimensionless). Exposed as UCI ints 0..300, interpreted as (value / 100.0).
-        // Defaults are tied to the main-history knobs above, so behavior is unchanged unless tuned.
-        double cont_cutoff_bonus_mult = 2.25; // default 2.0x (UCI default 200)
-        double cont_neg_update_mult = 0.5;   // default 1.25x (UCI default 125)
+        // Continuation history is disabled by default after negative A/B results.
+        double cont_cutoff_bonus_mult = 0.0;
+        double cont_neg_update_mult = 0.0;
 
         // LMR history tuning knobs (dimensionless). Exposed as UCI ints 0..300, interpreted as (value / 100.0).
         // These affect only the history-based LMR adjustment.
@@ -60,8 +60,8 @@ namespace fast_engine
         bool use_move_count_pruning = true;
 
         // Correction history
-        bool use_correction_history = true;
-        double correction_history_scale = 0.5;
+        bool use_correction_history = false;
+        double correction_history_scale = 0.0;
 
         // Time management / UCI
         int max_depth_timed = 64;
