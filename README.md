@@ -107,9 +107,9 @@ quit
 Local match against FabChess Version 1.8 at 10 seconds per 50 moves:
 
 ```text
-Score of SFB_Previous vs FabChess: 355 - 285 - 106 [0.547]
-...      SFB_Previous playing White: 171 - 142 - 60  [0.539] 373
-...      SFB_Previous playing Black: 184 - 143 - 46  [0.555] 373
+Score of ShakeyBot vs FabChess Version 1.8: 355 - 285 - 106 [0.547]
+...      ShakeyBot playing White: 171 - 142 - 60  [0.539] 373
+...      ShakeyBot playing Black: 184 - 143 - 46  [0.555] 373
 ...      White vs Black: 314 - 326 - 106  [0.492] 746
 Elo difference: 32.7 +/- 23.2, LOS: 99.7 %, DrawRatio: 14.2 %
 746 of 20000 games finished.
@@ -120,7 +120,7 @@ This suggests ShakeyBot is roughly competitive with 2400-class HCE engines under
 ## Version released on 11 Feb 2026
 
 ```text
-Score of ShakeyBot_New vs ShakeyBot_Lichess: 1431 - 1114 - 1099 [0.543]
+Score of ShakeyBot_New vs ShakeyBot_Previous: 1431 - 1114 - 1099 [0.543]
 
 ...      ShakeyBot_New playing White: 754 - 520 - 548  [0.564] 1822
 
