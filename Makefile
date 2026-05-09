@@ -1,12 +1,12 @@
-# ShakeyBot Makefile (GNU make / MinGW)
+# ShakeyBot Makefile (GNU make, MinGW on Windows)
 
-# Toolchain (override from CLI if needed, e.g. make CXX=clang++)
+# Toolchain. Override from CLI when needed, e.g. make CXX=clang++.
 CXX ?= g++
 
-# Build mode: debug or release (make MODE=release)
+# Build mode: debug or release.
 MODE ?= debug
 
-# Project layout
+# Project layout.
 SRC_DIR     := src
 APP_DIR     := apps
 INC_DIRS    := include external
@@ -22,7 +22,7 @@ ifeq ($(OS),Windows_NT)
   endif
 endif
 
-# Target naming
+# Target name.
 ifeq ($(OS),Windows_NT)
   EXE_EXT := .exe
 else
@@ -31,7 +31,7 @@ endif
 TARGET_NAME := ShakeyBot
 TARGET      := $(BIN_DIR)/$(TARGET_NAME)$(EXE_EXT)
 
-# Flags
+# Compiler and linker flags.
 CPPFLAGS := $(addprefix -I,$(INC_DIRS))
 CXXFLAGS := -std=c++20 -Wall -Wextra -Wpedantic -MMD -MP
 LDFLAGS  :=
@@ -49,7 +49,7 @@ ifneq ($(OS),Windows_NT)
   LDFLAGS  += -pthread
 endif
 
-# Sources
+# Source files.
 CORE_SOURCES := \
   $(SRC_DIR)/config.cpp \
   $(SRC_DIR)/engine.cpp \
@@ -98,8 +98,9 @@ run: $(TARGET)
 
 help:
 	@echo "Targets:"
-	@echo "  make [MODE=debug|release]   Build $(TARGET)"
-	@echo "  make run                    Build and run"
+	@echo "  make MODE=release           Build release binary"
+	@echo "  make MODE=debug             Build debug binary"
+	@echo "  make run                    Build and run binary"
 	@echo "  make clean                  Remove build artifacts"
 
 -include $(DEPS)

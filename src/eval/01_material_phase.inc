@@ -57,7 +57,7 @@ double material_white_pov_pawns(const Board &board)
 
 // ---------------------- Phase computation ----------------------
 
-// Mirrors your Python _PHASE_* logic.
+// Mirrors the original _PHASE_* tuning.
 constexpr int PHASE_PAWN = 0;
 constexpr int PHASE_KNIGHT = 1;
 constexpr int PHASE_BISHOP = 1;

@@ -562,7 +562,7 @@ Score negamax(chess::Board &board,
             }
         }
     }
-    // Leaf: ensure mates at depth==0 still get distance (via qsearch’s mate check)
+    // Leaf: ensure mates at depth==0 still get distance (via qsearch mate check).
     if (depth <= 0)
     {
         Score val;
@@ -689,7 +689,7 @@ Score negamax(chess::Board &board,
     // ss->ttPv is an internal PV hint stored in the per-ply stack and driven by
     // a dedicated TT PV bit (not merely by TT bounds). Our TT implementation does not
     // currently carry an explicit PV flag, so we don't approximate ttPv from
-    // TT_EXACT / depth — that tends to over-trigger PV-specific logic and can hurt strength.
+    // TT_EXACT / depth; that tends to over-trigger PV-specific logic and can hurt strength.
     const bool tt_pv_node = pv;
     bool badcap_generated_recorded = false;
     if (picker.capture_stages_ready() && picker.bad_caps.count > 0)
@@ -724,7 +724,8 @@ Score negamax(chess::Board &board,
     int quiet_searched = 0; // quiet moves actually searched (after forward-pruning gates)
     bool badcap_stage_seen = false;
     int movesSearched = 0;
-    bool skip_quiet_moves = false; // Once moveCount reaches futility_move_count, skip remaining quiet non-checking moves
+    // Once this flips, later quiet non-checking moves are skipped at this node.
+    bool skip_quiet_moves = false;
 
     // --- Principal Variation Search loop with LMR ---
     chess::Move move{};
@@ -757,7 +758,7 @@ Score negamax(chess::Board &board,
             }
         }
         // Bad captures are searched last. Do not blanket-skip the entire bad-capture stage in cut nodes,
-        // as that can miss tactical resources (especially SEE≈0 lines) and cost strength.
+        // as that can miss tactical resources, especially SEE near 0, and cost strength.
         const bool is_quiet = (!is_capture && !is_promo);
         int quiet_index = -1;
         if (is_quiet)
@@ -1014,10 +1015,10 @@ Score negamax(chess::Board &board,
                 history_prune_bad = true;
             }
 
-            // Extended futility pruning for quiet moves at shallow depths (2–4)
+            // Extended futility pruning for quiet moves at shallow depths (2-4).
             if (!critical_pawn_push && ENABLE_EXT_FUTILITY && have_static_eval && depth >= 2 && depth <= 4 && !first_move)
             {
-                // Compute lmrDepth for pruning layer:
+                // Estimate reduced depth used by the pruning layer.
                 const int new_depth = depth - 1;
                 const int delta = static_cast<int>(beta - alpha);
                 const int move_count = prospectiveMoveCount;
@@ -1032,13 +1033,13 @@ Score negamax(chess::Board &board,
                 if (lmr_depth < 0)
                     lmr_depth = 0;
 
-                // base = (bestMove ? 48 : 146)
-                const int base = have_best ? 64 : 162; // Kinda tuned
+                // Use a tighter margin once a previous move has raised alpha.
+                const int base = have_best ? 64 : 162;
                 const int extra = (best_score < static_eval - 128) ? 103 : 0;
                 const Score safety = static_cast<Score>((depth <= 3) ? 40 : 0);
                 const Score futility_value = static_eval + static_cast<Score>(base + 116 * lmr_depth + extra) + safety;
 
-                // Gate: !inCheck && lmrDepth < 12 && futilityValue <= alpha
+                // Only prune when reduced-depth futility cannot reach alpha.
                 if (lmr_depth < 12 && futility_value <= alpha)
                 {
                     // Keep a non-search-derived lower bound.
@@ -1070,7 +1071,7 @@ Score negamax(chess::Board &board,
                     have_static_eval = true;
                 }
                 // Only prune when we are clearly failing low already.
-                const Score mcp_margin = 100 + 50 * depth; // centipawns //NEED TO TUNE
+                const Score mcp_margin = 100 + 50 * depth;
                 if (static_eval + mcp_margin <= alpha)
                 {
                     int limit = MCP_BASE + (MCP_SCALE * depth * depth) / MCP_DIV;
@@ -1089,9 +1090,16 @@ Score negamax(chess::Board &board,
         const int moveCount = ++movesSearched;
         if (is_quiet)
             ++quiet_searched;
-        // Once moveCount reaches the threshold, skip remaining quiet non-checking moves at this node.
+        // Late quiet skip begins only after the quiet-only threshold is reached.
         if (normal_selective_pruning &&
-            is_null_window && ply > 0 && have_best && board.hasNonPawnMaterial(board.sideToMove()) && !skip_quiet_moves && is_quiet && quiet_searched >= 4 && quiet_searched >= sf_futility_move_count(improving, depth) + 2)
+            is_null_window &&
+            ply > 0 &&
+            have_best &&
+            board.hasNonPawnMaterial(board.sideToMove()) &&
+            !skip_quiet_moves &&
+            is_quiet &&
+            quiet_searched >= 4 &&
+            quiet_searched >= sf_futility_move_count(improving, depth) + 2)
         {
             skip_quiet_moves = true;
         }

@@ -32,13 +32,13 @@ Score qsearch(chess::Board &board,
         // tendency to repeat when appropriate.
         return (ds < 0) ? mul_div_round(ds, TWO_FOLD_REP_NUM, TWO_FOLD_REP_DEN) : ds;
     }
-    // Helper: piece value in pawns (your eval scale is pawns).
+    // Helper: piece value in centipawns for qsearch material gain.
     auto value_cp = [](chess::PieceType pt) -> Score
     {
-        const int idx = static_cast<int>(pt);
-        if (idx < 0 || idx >= NUM_ORDER_PT)
+        const int piece_index = static_cast<int>(pt);
+        if (piece_index < 0 || piece_index >= NUM_ORDER_PT)
             return 0;
-        return static_cast<Score>(PIECE_ORDER_VALUE[idx]);
+        return static_cast<Score>(PIECE_ORDER_VALUE[piece_index]);
     };
     // Mate distance pruning: clamp window and early-exit if empty.
     clamp_mate_window(alpha, beta, ply);
@@ -73,7 +73,7 @@ Score qsearch(chess::Board &board,
             ++stats.tt_misses;
         }
     }
-    // Max-ply safety : avoid overflowing ply-indexed stacks/tables.
+    // Max-ply safety: avoid overflowing ply-indexed stacks/tables.
     // At MAX_PLY, we do not expand further. If in check, return mate if no evasion else draw.
     if (ply >= MAX_PLY)
     {
@@ -88,10 +88,10 @@ Score qsearch(chess::Board &board,
         }
         if (raw_static_eval == TT_NO_STATIC_EVAL)
             raw_static_eval = eval_stm_no_game_over(board, config);
-        Score e = corrected_static_eval_from_raw(raw_static_eval, board, config);
-        return e;
+        const Score static_score = corrected_static_eval_from_raw(raw_static_eval, board, config);
+        return static_score;
     }
-    // If side to move is in check, we must search ALL legal evasions.
+    // If side to move is in check, we must search all legal evasions.
     if (board.inCheck())
     {
         chess::Movelist evasions;
@@ -102,7 +102,7 @@ Score qsearch(chess::Board &board,
             // Checkmate: losing mate with distance.
             return -MATE_SCORE + ply;
         }
-        // Order evasions using the same heuristic pipeline as before.
+        // Order evasions using the normal qsearch ordering pipeline.
         const chess::Move *tt_move_ptr = have_tt_best ? &tt_best_move : nullptr;
         order_moves(board, evasions, tt_move_ptr, ply, config);
         chess::Move best_move_local = chess::Move::NO_MOVE;
@@ -177,7 +177,7 @@ Score qsearch(chess::Board &board,
     auto push_scored = [&](const chess::Move &m)
     {
         // Note: this is a qsearch-specific ordering: promotions > MVV-LVA captures > checks.
-        int s = 0;
+        int ordering_score = 0;
         const bool is_promo = (m.typeOf() == chess::Move::PROMOTION);
         const bool is_cap = board.isCapture(m) || (m.typeOf() == chess::Move::ENPASSANT);
         int move_see = 0;
@@ -185,10 +185,10 @@ Score qsearch(chess::Board &board,
         if (is_promo)
         {
             const chess::PieceType promo = m.promotionType();
-            s += 800'000;
+            ordering_score += 800'000;
             const int idx = static_cast<int>(promo);
             if (0 <= idx && idx < NUM_ORDER_PT)
-                s += PIECE_ORDER_VALUE[idx];
+                ordering_score += PIECE_ORDER_VALUE[idx];
         }
         if (is_cap)
         {
@@ -205,10 +205,10 @@ Score qsearch(chess::Board &board,
             const chess::Piece attacker = board.at(m.from());
             if (victim != chess::Piece::NONE && attacker != chess::Piece::NONE)
             {
-                const int v = PIECE_ORDER_VALUE[static_cast<int>(victim.type())];
-                const int a = PIECE_ORDER_VALUE[static_cast<int>(attacker.type())];
+                const int victim_value = PIECE_ORDER_VALUE[static_cast<int>(victim.type())];
+                const int attacker_value = PIECE_ORDER_VALUE[static_cast<int>(attacker.type())];
                 // MVV-LVA style.
-                s += 100'000 + (50 * v - a);
+                ordering_score += 100'000 + (50 * victim_value - attacker_value);
                 // Refine capture ordering with SEE + capture history. This helps reduce q-node blowups
                 // in tactically dense positions without changing correctness.
                 move_see = see_cp(board, m);
@@ -218,30 +218,30 @@ Score qsearch(chess::Board &board,
                     ordering_see = 2000;
                 else if (ordering_see < -2000)
                     ordering_see = -2000;
-                s += ordering_see * 12;
+                ordering_score += ordering_see * 12;
                 if (config.use_capture_history)
                 {
                     const int stm = (board.sideToMove() == chess::Color::WHITE) ? 0 : 1;
                     const int v_idx = static_cast<int>(victim.type());
                     const int a_idx = static_cast<int>(attacker.type());
                     if (0 <= v_idx && v_idx < NUM_ORDER_PT && 0 <= a_idx && a_idx < NUM_ORDER_PT)
-                        s += config.capture_history_ordering_mult * (capture_history[stm][a_idx][m.to().index()][v_idx] >> CAPTURE_HISTORY_SCORE_SHIFT_QS);
+                        ordering_score += config.capture_history_ordering_mult * (capture_history[stm][a_idx][m.to().index()][v_idx] >> CAPTURE_HISTORY_SCORE_SHIFT_QS);
                 }
             }
             else
             {
-                s += 100'000;
+                ordering_score += 100'000;
                 move_see = see_cp(board, m);
                 have_see = true;
             }
         }
         const bool gives_check = (board.givesCheck(m) != chess::CheckType::NO_CHECK);
         if (have_tt_best && m == tt_best_move)
-            s += 1'000'000;
+            ordering_score += 1'000'000;
         if (gives_check)
-            s += 5'000;
+            ordering_score += 5'000;
         if (count < static_cast<int>(scored.size()))
-            scored[count++] = ScoredMove{m, s, move_see, have_see, gives_check};
+            scored[count++] = ScoredMove{m, ordering_score, move_see, have_see, gives_check};
     };
     for (int i = 0; i < captures.size(); ++i)
         push_scored(captures[i]);
@@ -291,7 +291,7 @@ Score qsearch(chess::Board &board,
               {
                   return a.score > b.score;
               });
-    constexpr Score DELTA_MARGIN = 100; // centipawns; slightly less aggressive (safer tactics)
+    constexpr Score DELTA_MARGIN = 100; // centipawns
     chess::Move best_move_local = chess::Move::NO_MOVE;
     for (int i = 0; i < count; ++i)
     {
@@ -305,7 +305,7 @@ Score qsearch(chess::Board &board,
             is_cap &&
             previous_move != chess::Move::NO_MOVE &&
             move.to() == previous_move.to();
-        // Delta pruning (skip hopeless tactical moves), but do not delta-prune checking moves.
+        // Delta pruning skips hopeless tactical moves, but keeps checks and immediate recaptures.
         {
             Score gain = 0;
             if (is_cap)
@@ -331,7 +331,7 @@ Score qsearch(chess::Board &board,
         }
         // SEE pruning complements delta pruning: it filters exchanges that are tactically
         // unsound even if the raw captured material looked tempting.
-        // Never apply this filter to checking moves.
+        // Never apply this filter to checks or immediate recaptures.
         {
             if (is_cap)
             {

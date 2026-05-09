@@ -18,24 +18,24 @@ namespace fast_engine
             3.3, // BISHOP
             5.0, // ROOK
             9.0, // QUEEN
-            2.0, // KING (matches your Python config)
+            2.0, // KING, kept for historical tuning compatibility
             0.0  // NONE
         };
     } // anonymous namespace
 
     double piece_value(PieceType pt, chess::Color color)
     {
-        int idx = static_cast<int>(pt);
-        if (idx < 0 || idx >= static_cast<int>(std::size(BASE_PIECE_VALUES)))
+        const int piece_index = static_cast<int>(pt);
+        if (piece_index < 0 || piece_index >= static_cast<int>(std::size(BASE_PIECE_VALUES)))
             return 0.0;
 
-        double v = BASE_PIECE_VALUES[idx];
+        const double value = BASE_PIECE_VALUES[piece_index];
 
-        // Apply sign: white positive, black negative, none = 0
+        // White is positive, Black is negative, NONE is zero.
         if (color == chess::Color(chess::Color::underlying::WHITE))
-            return v;
+            return value;
         if (color == chess::Color(chess::Color::underlying::BLACK))
-            return -v;
+            return -value;
         return 0.0;
     }
 

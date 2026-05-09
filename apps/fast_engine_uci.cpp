@@ -32,20 +32,20 @@ static bool parse_bool_option(std::string v)
     return v == "1" || v == "true" || v == "yes" || v == "on";
 }
 
-// ----------------- Score formatting -----------------
+// Score formatting.
 
 static bool score_to_mate_moves(Score score, int &mate_moves_out)
 {
     if (score > UCI_MATE_BOUND)
     {
-        const long long dPlies = static_cast<long long>(UCI_MATE_SCORE - score);
-        mate_moves_out = static_cast<int>((dPlies + 1) / 2);
+        const long long distance_plies = static_cast<long long>(UCI_MATE_SCORE - score);
+        mate_moves_out = static_cast<int>((distance_plies + 1) / 2);
         return true;
     }
     if (score < -UCI_MATE_BOUND)
     {
-        const long long dPlies = static_cast<long long>(UCI_MATE_SCORE + score);
-        mate_moves_out = -static_cast<int>((dPlies + 1) / 2);
+        const long long distance_plies = static_cast<long long>(UCI_MATE_SCORE + score);
+        mate_moves_out = -static_cast<int>((distance_plies + 1) / 2);
         return true;
     }
     return false;
@@ -64,41 +64,41 @@ static void append_uci_score(std::ostringstream &info, Score score)
     }
 }
 
-// ----------------- I/O helpers (thread-safe) -----------------
+// UCI output can come from the main thread and the search thread.
 
 struct UciIO
 {
-    std::mutex m;
+    std::mutex mutex;
 
     void log(const std::string &line)
     {
-        std::lock_guard<std::mutex> lk(m);
+        std::lock_guard<std::mutex> lock(mutex);
         std::cerr << line << std::endl;
     }
 
     void send(const std::string &line)
     {
-        std::lock_guard<std::mutex> lk(m);
+        std::lock_guard<std::mutex> lock(mutex);
         std::cout << line << std::endl;
     }
 };
 
-// ----------------- Iteration "info" output -----------------
+// Iteration "info" output.
 
-static void print_iteration_info(UciIO &io, const IterationInfo &ii)
+static void print_iteration_info(UciIO &io, const IterationInfo &iter)
 {
     std::ostringstream info;
-    info << "info depth " << ii.depth;
-    append_uci_score(info, ii.score);
-    info << " nodes " << ii.nodes;
-    info << " time " << static_cast<int>(std::llround(ii.time_seconds * 1000.0));
-    info << " nps " << static_cast<long long>(std::llround(ii.nps));
-    if (!ii.pv_uci.empty())
-        info << " pv " << ii.pv_uci;
+    info << "info depth " << iter.depth;
+    append_uci_score(info, iter.score);
+    info << " nodes " << iter.nodes;
+    info << " time " << static_cast<int>(std::llround(iter.time_seconds * 1000.0));
+    info << " nps " << static_cast<long long>(std::llround(iter.nps));
+    if (!iter.pv_uci.empty())
+        info << " pv " << iter.pv_uci;
     io.send(info.str());
 }
 
-// ----------------- Trim helpers -----------------
+// Trim helpers.
 
 static std::string ltrim(const std::string &s)
 {
@@ -123,7 +123,7 @@ static std::string trim(const std::string &s)
     return rtrim(ltrim(s));
 }
 
-// ----------------- UCI option handling -----------------
+// UCI option handling.
 
 static void handle_setoption(const std::string &line,
                              EngineConfig &config,
@@ -447,7 +447,6 @@ static void handle_setoption(const std::string &line,
             config.history_neg_update_mult = static_cast<double>(v) / 100.0;
         }
     }
-    
     else if (name == "ContCutoffBonus")
     {
         // 0..300 -> 0.00x .. 3.00x
@@ -468,7 +467,7 @@ static void handle_setoption(const std::string &line,
             config.cont_neg_update_mult = static_cast<double>(v) / 100.0;
         }
     }
-else if (name == "LMRHistoryRelief")
+    else if (name == "LMRHistoryRelief")
     {
         // 0..300 -> 0.00x .. 3.00x
         if (!value.empty())
@@ -572,7 +571,7 @@ else if (name == "LMRHistoryRelief")
         engine->setConfig(config);
 }
 
-// ----------------- Position parsing -----------------
+// Position parsing.
 
 static int handle_position(const std::string &line, chess::Board &board)
 {
@@ -879,7 +878,7 @@ static void start_search_async(SearchWorker &w,
                                const chess::Move &ponder_move_to_apply,
                                bool apply_ponder_move)
 {
-    // Stop any current search (should not happen in normal UCI flow, but keep it robust).
+    // Stop any current search before replacing worker state.
     if (w.th.joinable())
     {
         w.stop_reason.store(static_cast<int>(StopReason::Internal), std::memory_order_relaxed);
@@ -1077,7 +1076,7 @@ static void handle_ponderhit(SearchWorker &w,
         }
     }
 
-    // Convert to a normal timed search using the same limits, per your preference.
+    // Convert to a normal timed search using the same limits.
     saved_limits.ponder = false;
     saved_limits.infinite = false;
 
@@ -1137,7 +1136,7 @@ int main()
             io.send("option name MoveOverhead type spin default " + std::to_string(config.move_overhead_ms) + " min 0 max 2000");
             io.send("option name Ponder type check default " + std::string(as_bool(config.ponder)));
 
-            // ---- Evaluation scales (linear multipliers; values are shown as x100 for convenience) ----
+            // Evaluation scales are exposed as x100 integer multipliers.
             io.send("option name MaterialScale type spin default " + std::to_string(to_cp(config.eval.material)) + " min 0 max 300");
             io.send("option name ImbalanceScale type spin default " + std::to_string(to_cp(config.eval.imbalance)) + " min 0 max 300");
 
@@ -1172,7 +1171,7 @@ int main()
             io.send("option name RazorMarginD2 type spin default " + std::to_string(config.razor_margin_d2) + " min 0 max 3000");
             io.send("option name RazorMarginD3 type spin default " + std::to_string(config.razor_margin_d3) + " min 0 max 5000");
 
-            // Phase-1 toggles (for A/B isolation)
+            // Search feature toggles.
             io.send("option name UseHistoryHeuristic type check default " + std::string(as_bool(config.use_history_heuristic)));
             io.send("option name UseCaptureHistory type check default " + std::string(as_bool(config.use_capture_history)));
             io.send("option name UseContinuationHistory type check default " + std::string(as_bool(config.use_continuation_history)));
@@ -1242,7 +1241,7 @@ int main()
                 limits.ponder = false;
             }
 
-            // go ponder only if the GUI enabled Ponder and we have something plausible to ponder on.
+            // Go ponder only if the GUI enabled Ponder and we have a plausible ponder move.
             if (limits.ponder && config.ponder)
             {
                 chess::Move ponder_move = chess::Move::NO_MOVE;

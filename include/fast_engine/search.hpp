@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <vector>
+
 #include "chess.hpp"
 #include "fast_engine/config.hpp"
 #include "fast_engine/types.hpp"
@@ -30,8 +31,8 @@ namespace fast_engine
         chess::Move best_move{};
         bool has_best_move = false;
 
-        double time_seconds = 0.0; // search time
-        double nps = 0.0;          // nodes per second (nodes/time_seconds:.3f)
+        double time_seconds = 0.0;
+        double nps = 0.0; // nodes per second
 
         bool is_mate = false; // root position is checkmated
         bool is_draw = false; // root position is a draw (50-move, stalemate, etc.)
@@ -40,9 +41,9 @@ namespace fast_engine
         // The engine should ignore results from an incomplete iteration.
         bool stopped = false;
 
-        // Diagnostics (MovePicker / ordering)
-        std::uint64_t quiet_searched_ge10 = 0;   // quiet moves that actually got searched at nodes depth>=10
-        std::uint64_t quiet_researched_ge10 = 0; // additional searches (PVS/LMR re-search) for quiets at nodes depth>=10
+        // Diagnostics for late quiet search pressure.
+        std::uint64_t quiet_searched_ge10 = 0;   // quiets searched at remaining depth >= 10
+        std::uint64_t quiet_researched_ge10 = 0; // extra PVS/LMR searches for those quiets
         std::uint64_t pv_firstmove_changes_ge10 = 0;
         int pv_last_change_depth = 0;
 
@@ -50,7 +51,7 @@ namespace fast_engine
         // while searching root moves in a *single* completed iteration.
         std::uint64_t best_move_changes = 0;
 
-        // MovePicker diagnostics (to correlate slow positions with ordering pathologies)
+        // MovePicker diagnostics.
         std::uint64_t badcap_nodes = 0;    // nodes where MovePicker reached ST_BAD_CAP
         std::uint64_t badcap_picked = 0;   // moves returned from ST_BAD_CAP (may be pruned before search)
         std::uint64_t badcap_searched = 0; // ST_BAD_CAP moves actually searched (after pruning gates)
@@ -70,13 +71,12 @@ namespace fast_engine
         std::uint64_t probcut_searches = 0;    // reduced-depth searches launched after qsearch pass
         std::uint64_t probcut_cutoffs = 0;     // actual ProbCut beta cutoffs
 
-        // Full legal-move generation diagnostics
+        // Full legal-move generation diagnostics.
         std::uint64_t legal_movegen_calls = 0;
         std::uint64_t legal_moves_generated = 0;
     };
 
     // Runtime stop / time control shared across the search stack.
-    // Phase 2: single-threaded time enforcement. (External stop is added in Phase 4.)
     struct SearchControl
     {
         bool time_enabled = false;
@@ -84,7 +84,7 @@ namespace fast_engine
         std::chrono::steady_clock::time_point soft_deadline{}; // preferred stop (checked at iteration boundaries)
         std::chrono::steady_clock::time_point hard_deadline{}; // absolute stop (checked inside the tree)
 
-        // Optional external stop flag (e.g., UCI "stop"). nullptr in Phase 2.
+        // Optional external stop flag, used by UCI "stop".
         std::atomic<bool> *external_stop = nullptr;
     };
 

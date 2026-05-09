@@ -2,7 +2,7 @@
 
 ShakeyBot is a UCI chess engine written in C++.
 
-Not sure of it's ELO just yet, but once I manage to enter it in tournaments we will find out! 
+It uses hand-crafted evaluation. In local testing against FabChess, a public engine with a listed strength around 2400 Elo, ShakeyBot scored slightly ahead. This is a local estimate, not an official rating-list result.
 
 ## Project Layout
 
@@ -102,7 +102,24 @@ stop
 quit
 ```
 
-## Version released on 11 Feb 2026 
+## Estimated Strength
+
+Local match against FabChess at 10 seconds per 50 moves:
+
+```text
+Score of SFB_Previous vs FabChess: 355 - 285 - 106 [0.547]
+...      SFB_Previous playing White: 171 - 142 - 60  [0.539] 373
+...      SFB_Previous playing Black: 184 - 143 - 46  [0.555] 373
+...      White vs Black: 314 - 326 - 106  [0.492] 746
+Elo difference: 32.7 +/- 23.2, LOS: 99.7 %, DrawRatio: 14.2 %
+746 of 20000 games finished.
+```
+
+This suggests ShakeyBot is roughly competitive with 2400-class HCE engines under this local 10s/50 moves tournament setup.
+
+## Version released on 11 Feb 2026
+
+```text
 Score of ShakeyBot_New vs ShakeyBot_Lichess: 1431 - 1114 - 1099 [0.543]
 
 ...      ShakeyBot_New playing White: 754 - 520 - 548  [0.564] 1822
@@ -116,9 +133,9 @@ Elo difference: 30.3 +/- 9.4, LOS: 100.0 %, DrawRatio: 30.2 %
 SPRT: llr 0 (0.0%), lbound -inf, ubound inf
 
 3644 of 10000 games finished.
+```
 
 ## Notes
 
 - Search and evaluation are currently organized as thin orchestrators (`src/search.cpp`, `src/evaluation.cpp`) that include internal module fragments under `src/search/*.inc` and `src/eval/*.inc`.
 - Engine options are exposed via UCI `setoption` in `apps/fast_engine_uci.cpp`.
-

@@ -218,20 +218,20 @@ namespace fast_engine
         if (soft > hard)
             soft = hard;
 
-        tb.soft_ms = static_cast<int>(soft * 1);
-        tb.hard_ms = static_cast<int>(hard * 1);
+        tb.soft_ms = static_cast<int>(soft);
+        tb.hard_ms = static_cast<int>(hard);
         return tb;
     }
 
-    static bool is_legal_move(const chess::Board &board, chess::Move mv)
+    static bool is_legal_move(const chess::Board &board, chess::Move move)
     {
-        if (mv == chess::Move::NO_MOVE)
+        if (move == chess::Move::NO_MOVE)
             return false;
         chess::Movelist moves;
         chess::movegen::legalmoves(moves, const_cast<chess::Board &>(board));
         for (const auto &m : moves)
         {
-            if (m == mv)
+            if (m == move)
                 return true;
         }
         return false;
@@ -318,20 +318,20 @@ namespace fast_engine
 
         while (written < max_len)
         {
-            const auto e = tt.probe(root.hash());
-            if (!e.has_value() || !e->hasMove)
+            const auto entry = tt.probe(root.hash());
+            if (!entry.has_value() || !entry->hasMove)
                 break;
-            const chess::Move mv = e->bestMove;
-            if (!is_legal_move(root, mv))
-                break;
-
-            // repetition guard (cheap): stop if we see the same hash again.
-            root.makeMove(mv);
-            const std::uint64_t h = root.hash();
-            if (!seen.insert(h).second)
+            const chess::Move move = entry->bestMove;
+            if (!is_legal_move(root, move))
                 break;
 
-            pv << ' ' << chess::uci::moveToUci(mv);
+            // Stop PV extraction if the TT line loops back to a seen position.
+            root.makeMove(move);
+            const std::uint64_t hash = root.hash();
+            if (!seen.insert(hash).second)
+                break;
+
+            pv << ' ' << chess::uci::moveToUci(move);
             ++written;
         }
 
@@ -580,32 +580,32 @@ namespace fast_engine
             prev_best_move_all = iter_best_move;
 
             // If the best move is stable for many depths, reduce time; otherwise allow more time.
-            const double timeReduction = (last_pv0_change_depth + 4 < completed_depth) ? 1.6857 : 0.9;
-            const double reduction = (1.4540 + previous_time_reduction) / (2.1593 * timeReduction);
+            const double time_reduction = (last_pv0_change_depth + 4 < completed_depth) ? 1.6857 : 0.9;
+            const double reduction = (1.4540 + previous_time_reduction) / (2.1593 * time_reduction);
 
             // More root best-move flips within this iteration => spend more time.
-            double bestMoveInstability = 0.9929 + 1.8519 * (double(iter_stats.best_move_changes)); // 1 thread
-            bestMoveInstability = std::clamp(bestMoveInstability, 0.50, 3.00);
+            double best_move_instability = 0.9929 + 1.8519 * static_cast<double>(iter_stats.best_move_changes);
+            best_move_instability = std::clamp(best_move_instability, 0.50, 3.00);
 
             const int pv_stable_depths = std::max(0, completed_depth - last_pv0_change_depth);
             const RootTimeAllocation root_time =
                 root_time_adjustment(completed_depth, pv_stable_depths, iter_stats, iter_root_telemetry);
 
-            double target_ms = double(base_soft_ms) * reduction * bestMoveInstability;
+            double target_ms = static_cast<double>(base_soft_ms) * reduction * best_move_instability;
             target_ms *= root_time.target_multiplier;
 
             // Cap used time in case of a single legal move (viewer experience + avoid wasting time).
             if (iter_stats.root_branching_factor == 1)
                 target_ms = std::min(target_ms, 500.0);
             // Keep this as a moderate adjustment around the initial optimum time.
-            const double min_ms = std::max(1.0, double(base_soft_ms) * root_time.min_scale);
+            const double min_ms = std::max(1.0, static_cast<double>(base_soft_ms) * root_time.min_scale);
             const double max_ms = std::max(min_ms,
-                                           std::min(double(base_hard_ms),
-                                                    double(base_soft_ms) * root_time.max_scale));
+                                           std::min(static_cast<double>(base_hard_ms),
+                                                    static_cast<double>(base_soft_ms) * root_time.max_scale));
             target_ms = std::clamp(target_ms, min_ms, max_ms);
 
             control->soft_deadline = start + std::chrono::milliseconds(int(target_ms));
-            previous_time_reduction = timeReduction;
+            previous_time_reduction = time_reduction;
         };
 
         bool have_prev = false;
@@ -684,7 +684,7 @@ namespace fast_engine
                     depth_to_search,
                     config_,
                     use_quiescence,
-                    true /*Use internal iterative deepening*/,
+                    /*allow_iid=*/true,
                     tt_,
                     &root_moves,
                     iter_stats,
@@ -762,7 +762,7 @@ namespace fast_engine
                     continue;
                 }
 
-                // inside aspiration window -> accept
+                // Inside aspiration window: accept this score as exact.
                 in_window = true;
                 break;
             }
@@ -783,7 +783,7 @@ namespace fast_engine
                     depth_to_search,
                     config_,
                     use_quiescence,
-                    true /*Use internal iterative deepening*/,
+                    /*allow_iid=*/true,
                     tt_,
                     &root_moves,
                     iter_stats,
@@ -857,7 +857,7 @@ namespace fast_engine
                                probe_root_tt_move(board, tt_),
                                /*use_last_scores=*/false);
 
-            // Successful search at this depth – remember deepest PV
+            // Successful search at this depth: remember deepest PV.
             // Diagnostics: count late PV (first move) changes between consecutive completed iterations.
             if (depth_to_search >= 10 && prev_best_depth_ge10 >= 10 && last_stats.has_best_move &&
                 prev_best_move_ge10 != chess::Move::NO_MOVE && iter_best_move != prev_best_move_ge10)

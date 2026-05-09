@@ -321,7 +321,7 @@ double king_zone_attack_pressure_against_color(const Board &board, Color defende
     return pressure;
 }
 
-// NOTE on weighting:
+// Weighting:
 // This engine's phase_0_256 currently grows as pieces come OFF the board (i.e. it is an
 // "endgame-progress" phase). Therefore, the caller must pass a *middlegame-like* weight
 // (typically computed as eg_weight = 1 - endgame_progress).

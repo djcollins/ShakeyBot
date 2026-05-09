@@ -135,7 +135,7 @@ static inline double endgame_scale_factor_for_advantage(const Board &board,
             const int pawn_adv = std::max(0, strong_pawns - weak_pawns);
 
             // Conservative scaling: keep some advantage, but reduce optimism.
-            // 0–1 pawn: very drawish; 2 pawns: still tough; 3+ pawns: less drawish.
+            // 0-1 pawn: very drawish; 2 pawns: still tough; 3+ pawns: less drawish.
             const double ob_sf = (pawn_adv <= 1)   ? 0.60
                                  : (pawn_adv == 2) ? 0.72
                                                    : 0.85;

@@ -10,8 +10,8 @@
 //  - Must NOT be pawn-chaseable
 //
 // Notes:
-//  - We intentionally do NOT try to predict multi-move pawn chases here; we’re aiming
-//    for a strict, low-false-positive signal that won’t cause shallow-search optimism.
+//  - We intentionally do not predict multi-move pawn chases here; this stays strict
+//    to avoid shallow-search optimism.
 double outpost_term_for_color(const Board &board, Color us)
 {
     using namespace chess;

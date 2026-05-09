@@ -17,7 +17,7 @@
 //
 // Practical notes:
 // - Cover/storm is primarily a middlegame signal. We taper it by mg_weight (0..1).
-// - King-zone pressure remains untapered (your prior experiments found full tapering
+// - King-zone pressure remains untapered (prior tests found full tapering
 //   regressed, especially in defensive scenarios).
 
 // Donna tables (centipawns) ported directly and converted to pawn units.

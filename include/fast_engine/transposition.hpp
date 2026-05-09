@@ -44,15 +44,14 @@ namespace fast_engine
     class TranspositionTable
     {
     public:
-        // If you've already done B (associativity), keep your chosen value here.
-        // 4-way is a good default.
+        // Four-way clusters give good replacement quality without growing entry size.
         static constexpr int CLUSTER_SIZE = 4;
 
         TranspositionTable() = default;
         explicit TranspositionTable(std::size_t maxEntries) { resize(maxEntries); }
 
         void resize(std::size_t maxEntries);
-        void clear(); // O(1): bump generation
+        void clear();      // O(1): bump generation
         void new_search(); // bump generation, keep older entries probeable
 
         std::optional<TTEntry> probe(std::uint64_t key) const;
@@ -61,19 +60,19 @@ namespace fast_engine
         static std::size_t mb_for_entries(std::size_t entries);
         std::size_t capacity() const { return capacity_entries_; }
 
-        // D: stored TT bytes per entry (packed), for your MB sizing math.
+        // Stored bytes per packed TT entry, used for MB sizing.
         static constexpr std::size_t stored_entry_bytes() { return sizeof(PackedEntry); }
 
     private:
-        // D: compact stored entry (this is what lives in the big TT array).
+        // Compact entry stored in the main TT array.
         struct PackedEntry
         {
-            std::int32_t value_cp = 0; // centipawns, already mate-adjusted
+            std::int32_t value_cp = 0;                // centipawns, already mate-adjusted
             std::int32_t static_eval_cp = TT_NO_STATIC_EVAL; // raw static eval or sentinel
-            std::uint32_t key32 = 0;   // key signature (top bits)
-            std::uint16_t move16 = 0;  // chess::Move raw (0 == NO_MOVE)
+            std::uint32_t key32 = 0;                  // key signature (top bits)
+            std::uint16_t move16 = 0;                 // chess::Move raw (0 == NO_MOVE)
             std::uint8_t depth_flag = 0xFF; // low 6 bits depth, high 2 bits TTFlag, 0xFF == empty
-            std::uint8_t gen = 0;      // generation tag
+            std::uint8_t gen = 0;                    // generation tag
         };
 
         static_assert(sizeof(PackedEntry) == 16, "PackedEntry should be 16 bytes");

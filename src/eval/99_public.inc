@@ -157,13 +157,13 @@ Score evaluate_white_pov_with_config(const Board &board,
     // endgames that are hard to convert even when the static edge is real.
     if (cfg.eval.complexity != 0.0 && phase_0_256 >= 96)
     {
-        const double base_sf = complexity_scale_factor_white_pov(board, score, mat, info);
-        double tuned_sf = 1.0 + cfg.eval.complexity * (base_sf - 1.0);
-        if (tuned_sf < 0.0)
-            tuned_sf = 0.0;
-        if (tuned_sf > 1.0)
-            tuned_sf = 1.0;
-        score *= tuned_sf;
+        const double base_scale = complexity_scale_factor_white_pov(board, score, mat, info);
+        double complexity_scale = 1.0 + cfg.eval.complexity * (base_scale - 1.0);
+        if (complexity_scale < 0.0)
+            complexity_scale = 0.0;
+        if (complexity_scale > 1.0)
+            complexity_scale = 1.0;
+        score *= complexity_scale;
     }
 
     const Score result = pawns_to_cp(score);

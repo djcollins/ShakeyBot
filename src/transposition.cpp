@@ -42,6 +42,7 @@ namespace fast_engine
         gen_ = 1; // new table: reset generation
         clear_gen_ = 1;
     }
+
     std::size_t TranspositionTable::entries_for_mb(std::size_t mb)
     {
         if (mb < 1)
@@ -74,6 +75,7 @@ namespace fast_engine
         const std::size_t bytes = buckets * sizeof(Bucket);
         return bytes / (1024ULL * 1024ULL);
     }
+
     bool TranspositionTable::generation_valid(std::uint8_t gen) const
     {
         return gen != 0 && gen >= clear_gen_ && gen <= gen_;
@@ -119,34 +121,34 @@ namespace fast_engine
         if (table_.empty())
             return std::nullopt;
 
-        const std::size_t idx = static_cast<std::size_t>(key) & mask_;
-        const std::uint32_t sig = key_signature32(key);
+        const std::size_t bucket_index = static_cast<std::size_t>(key) & mask_;
+        const std::uint32_t signature = key_signature32(key);
 
-        const Bucket &b = table_[idx];
+        const Bucket &bucket = table_[bucket_index];
         const PackedEntry *best = nullptr;
         int best_quality = std::numeric_limits<int>::min();
 
-        for (const auto &pe : b.e)
+        for (const auto &entry : bucket.e)
         {
-            if (entry_empty(pe))
+            if (entry_empty(entry))
                 continue;
-            if (!generation_valid(pe.gen))
+            if (!generation_valid(entry.gen))
                 continue;
-            if (pe.key32 != sig)
+            if (entry.key32 != signature)
                 continue;
 
-            int q = entry_depth(pe) * 8;
-            if (entry_flag(pe) == TT_EXACT)
-                q += 4;
-            if (pe.move16 != chess::Move::NO_MOVE)
-                q += 1;
-            if (pe.gen == gen_)
-                q += 1024;
+            int quality = entry_depth(entry) * 8;
+            if (entry_flag(entry) == TT_EXACT)
+                quality += 4;
+            if (entry.move16 != chess::Move::NO_MOVE)
+                quality += 1;
+            if (entry.gen == gen_)
+                quality += 1024;
 
-            if (!best || q > best_quality)
+            if (!best || quality > best_quality)
             {
-                best = &pe;
-                best_quality = q;
+                best = &entry;
+                best_quality = quality;
             }
         }
 
@@ -172,73 +174,73 @@ namespace fast_engine
         if (table_.empty())
             return;
 
-        const std::size_t idx = static_cast<std::size_t>(entry.key) & mask_;
-        const std::uint32_t sig = key_signature32(entry.key);
+        const std::size_t bucket_index = static_cast<std::size_t>(entry.key) & mask_;
+        const std::uint32_t signature = key_signature32(entry.key);
 
-        // D: store score as centipawns (int), not double.
-        const std::int32_t vcp = static_cast<std::int32_t>(entry.value);
+        // Store scores as packed centipawns.
+        const std::int32_t value_cp = static_cast<std::int32_t>(entry.value);
 
-        Bucket &b = table_[idx];
+        Bucket &bucket = table_[bucket_index];
 
         auto write = [&](PackedEntry &pe)
         {
             pe.gen = gen_;
-            pe.key32 = sig;
+            pe.key32 = signature;
             pe.depth_flag = pack_depth_flag(entry.depth, entry.flag);
-            pe.value_cp = vcp;
+            pe.value_cp = value_cp;
             pe.static_eval_cp = static_cast<std::int32_t>(entry.static_eval);
 
             pe.move16 = entry.hasMove ? entry.bestMove.move() : chess::Move::NO_MOVE;
         };
 
         // 1) Same key (signature) in current generation: update smartly.
-        for (auto &pe : b.e)
+        for (auto &packed : bucket.e)
         {
-            if (pe.gen != gen_)
+            if (packed.gen != gen_)
                 continue;
-            if (entry_empty(pe))
+            if (entry_empty(packed))
                 continue;
-            if (pe.key32 != sig)
+            if (packed.key32 != signature)
                 continue;
 
-            const int oldDepth = entry_depth(pe);
-            const int newDepth = std::clamp(entry.depth, 0, 63);
-            const bool oldExact = (entry_flag(pe) == TT_EXACT);
-            const bool newExact = (entry.flag == TT_EXACT);
+            const int old_depth = entry_depth(packed);
+            const int new_depth = std::clamp(entry.depth, 0, 63);
+            const bool old_exact = (entry_flag(packed) == TT_EXACT);
+            const bool new_exact = (entry.flag == TT_EXACT);
 
             const bool replace =
-                (newDepth > oldDepth) ||
-                (newDepth == oldDepth && newExact && !oldExact);
+                (new_depth > old_depth) ||
+                (new_depth == old_depth && new_exact && !old_exact);
 
             if (replace)
             {
-                write(pe);
+                write(packed);
             }
             else
             {
                 // Keep old eval, but allow best-move fill-in if old had none.
-                if (entry.static_eval != TT_NO_STATIC_EVAL && pe.static_eval_cp == TT_NO_STATIC_EVAL)
-                    pe.static_eval_cp = static_cast<std::int32_t>(entry.static_eval);
-                if (entry.hasMove && pe.move16 == chess::Move::NO_MOVE)
+                if (entry.static_eval != TT_NO_STATIC_EVAL && packed.static_eval_cp == TT_NO_STATIC_EVAL)
+                    packed.static_eval_cp = static_cast<std::int32_t>(entry.static_eval);
+                if (entry.hasMove && packed.move16 == chess::Move::NO_MOVE)
                 {
-                    pe.move16 = entry.bestMove.move();
+                    packed.move16 = entry.bestMove.move();
                 }
             }
             return;
         }
 
         // 2) Prefer an invalid/old-gen/empty slot first (age/generation).
-        for (auto &pe : b.e)
+        for (auto &packed : bucket.e)
         {
-            if (pe.gen != gen_ || entry_empty(pe))
+            if (packed.gen != gen_ || entry_empty(packed))
             {
-                write(pe);
+                write(packed);
                 return;
             }
         }
 
-        // 3) Bucket full: replace the lowest-quality entry (C).
-        auto quality = [&](const PackedEntry &pe) -> int
+        // 3) Bucket full: replace the lowest-quality entry.
+        auto replacement_quality = [&](const PackedEntry &packed) -> int
         {
             // Lower => more replaceable.
             //
@@ -250,30 +252,30 @@ namespace fast_engine
             //   1) empty slots
             //   2) stale-generation entries
             //   3) shallow / non-exact / no-move entries
-            if (entry_empty(pe))
+            if (entry_empty(packed))
                 return -1000000; // empty
 
-            int q = entry_depth(pe) * 4;
-            if (entry_flag(pe) == TT_EXACT)
-                q += 2;
-            if (pe.move16 != chess::Move::NO_MOVE)
-                q += 1;
+            int quality = entry_depth(packed) * 4;
+            if (entry_flag(packed) == TT_EXACT)
+                quality += 2;
+            if (packed.move16 != chess::Move::NO_MOVE)
+                quality += 1;
 
-            if (pe.gen != gen_)
-                q -= 1000; // stale => always replaceable
-            return q;
+            if (packed.gen != gen_)
+                quality -= 1000; // stale entries should lose to current-generation entries
+            return quality;
         };
 
-        PackedEntry *victim = &b.e[0];
-        int victimQ = quality(b.e[0]);
+        PackedEntry *victim = &bucket.e[0];
+        int victim_quality = replacement_quality(bucket.e[0]);
 
-        for (auto &pe : b.e)
+        for (auto &packed : bucket.e)
         {
-            const int q = quality(pe);
-            if (q < victimQ)
+            const int quality = replacement_quality(packed);
+            if (quality < victim_quality)
             {
-                victimQ = q;
-                victim = &pe;
+                victim_quality = quality;
+                victim = &packed;
             }
         }
 

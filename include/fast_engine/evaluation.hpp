@@ -16,16 +16,15 @@ namespace fast_engine
     Score debug_eval_xray_white_minus_black(const chess::Board &board);
     Score debug_eval_pst_stock_white_minus_black(const chess::Board &board);
 
-    /// Material-only evaluation, from White's point of view (in centipawns).
-    /// Positive = White better, negative = Black better (centipawns).
+    // Material-only evaluation, from White's point of view.
+    // Positive = White better, negative = Black better.
     Score evaluate_material(const chess::Board &board);
 
-    /// Full evaluation from White's point of view, using EngineConfig.
-    /// For now this is material plus stubbed feature terms (all 0.0).
+    // Full evaluation from White's point of view, using EngineConfig.
     Score evaluate_white_pov_with_config(const chess::Board &board,
                                          const EngineConfig &cfg);
 
-    /// Evaluation from the point of view of the side to move, using EngineConfig.
+    // Evaluation from the point of view of the side to move.
     Score evaluate_for_side_to_move_with_config(const chess::Board &board,
                                                 const EngineConfig &cfg);
 

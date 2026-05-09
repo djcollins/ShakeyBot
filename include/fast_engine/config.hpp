@@ -9,16 +9,15 @@ namespace fast_engine
         int search_depth = 3;
         bool use_quiescence = true;
 
-        // Phase-1 search ordering / pruning toggles (for clean A/B isolation)
+        // Search ordering and pruning feature toggles.
         bool use_history_heuristic = true;
         bool use_capture_history = true;
         bool use_continuation_history = false;
         bool use_probcut = true;
         bool use_iid = true;
 
-        // Move ordering tuning knobs (all values are in centipawns for convenience)
-        // SEE threshold used to classify captures as "good" (SEE >= threshold). The code adds +1cp at depth_remaining<=2
-        // to preserve the prior behavior (threshold 1 at shallow nodes, else 0) when this is set to 0.
+        // Move ordering tuning knobs. Centipawn values here affect ordering, not evaluation.
+        // A zero threshold preserves the old shallow-node behavior by adding +1cp at depth <= 2.
         int good_capture_see_threshold_cp = 0; // 0, 10, 20
 
         // Additional ordering penalty applied when a capture's SEE is below good_capture_see_threshold_cp.
@@ -29,7 +28,7 @@ namespace fast_engine
         // interpreted as (value / 100.0). Example: 150 -> 1.5x.
         double history_ordering_mult = 0.96;
         double continuation_ordering_mult = 0.0;
-        int capture_history_ordering_mult = 1;    // base multiplier for capture history
+        int capture_history_ordering_mult = 1;
 
         // History update scheme tuning knobs (dimensionless). Exposed as UCI ints 0..300, interpreted as (value / 100.0).
         // These affect LEARNING (the deltas written to history tables), not the scoring multipliers above.
@@ -46,9 +45,9 @@ namespace fast_engine
         double lmr_history_relief_mult = 1.25;
         double lmr_history_penalty_mult = 1.25;
 
-        // LMR base/slope tuning knobs (dimensionless). Exposed as UCI ints 0..300, interpreted as (value / 100.0).
-        double lmr_base_mult = 2.25;  // default 1.0x (UCI default 100)
-        double lmr_slope_mult = 0.5; // default 1.0x (UCI default 100)
+        // LMR base/slope tuning knobs. UCI exposes these as ints 0..300, interpreted as value / 100.0.
+        double lmr_base_mult = 2.25;
+        double lmr_slope_mult = 0.5;
 
         bool use_null_move_pruning = true;
 
@@ -59,7 +58,7 @@ namespace fast_engine
 
         bool use_move_count_pruning = true;
 
-        // Correction history
+        // Correction history is disabled by default after negative A/B results.
         bool use_correction_history = false;
         double correction_history_scale = 0.0;
 
@@ -131,8 +130,7 @@ namespace fast_engine
         double hash_mb = 256;
     };
 
-    // Base piece value in pawns, from your Python config, with sign applied
-    // (+ for White, - for Black).
+    // Base piece value in pawns, with sign applied (+ for White, - for Black).
     double piece_value(chess::PieceType pt, chess::Color color);
 
     // Convenience: same value, but take a chess::Piece directly.

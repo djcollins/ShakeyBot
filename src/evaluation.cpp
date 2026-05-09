@@ -9,10 +9,8 @@
 #include "fast_engine/evaluation.hpp"
 #include "fast_engine/config.hpp"
 
-// NOTE:
-// This file is the single compilation unit for evaluation.
-// The implementation has been split into smaller modules under src/eval/ and
-// included here to keep the existing build command working.
+// Evaluation uses one compilation unit with small internal modules.
+// The include order below is part of the eval pipeline.
 
 namespace fast_engine
 {

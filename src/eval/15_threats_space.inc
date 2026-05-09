@@ -200,14 +200,6 @@ static inline double threats_term_white_minus_black_from_maps(const Board &board
     const double b = threats_term_for_color_sf12_from_maps(board, Color::BLACK, m, mg_weight, eg_weight, info);
     return w - b;
 }
-/* DEPRECATED: This was an intermediate step for testing the maps-based version, but we can just compute white and black separately in the main term function.
-double threats_term_white_minus_black(const Board &board, double mg_weight, double eg_weight)
-{
-    AttackMaps m;
-    build_attack_maps(board, m);
-    return threats_term_white_minus_black_from_maps(board, m, mg_weight, eg_weight);
-}
-*/
 // --- Space advantage (SF12 evaluate.cpp::space()) ---
 //
 // Midgame-only space bonus that rewards safe central squares, and (more) safe squares
@@ -222,7 +214,7 @@ static inline double space_term_for_color_sf12like_from_maps(const Board &board,
 {
     using namespace chess;
 
-    // SF12 gate (SpaceThreshold) in your pawn units:
+    // SF12 SpaceThreshold gate, converted to pawn units.
     // Disable space once both queens are traded or when heavy exchanges occur.
     // Start position non-pawn material (both sides) is ~62 pawns.
     constexpr double SPACE_THRESHOLD_TOTAL_NONPAWN_PAWNS = 45.0;
@@ -268,8 +260,8 @@ static inline double space_term_for_color_sf12like_from_maps(const Board &board,
     int bonus = static_cast<int>(safe.count());
     bonus += static_cast<int>((behind & safe & ~enemy_all_attacks).count());
 
-    // SF12 weight: (piece count - 3) + min(blockedCount, 9)
-    // Your board.us() includes the king; subtract 4 to match SF's opening weight.
+    // SF12 weight: (piece count - 3) + min(blockedCount, 9).
+    // board.us() includes the king; subtract 4 to match SF's opening weight.
     const int piece_cnt_including_king = static_cast<int>(board.us(us).count());
     const int piece_weight = std::max(0, piece_cnt_including_king - 4);
     const int blocked_cnt = std::min(blocked_pawn_count_approx(board, info), 9);

@@ -44,11 +44,11 @@ inline bool periodic_hard_stop(SearchControl *control, SearchStats &stats)
 constexpr Score INF = SCORE_INF;    // comfortably larger than any eval in centipawns
 constexpr int TWO_FOLD_REP_NUM = 3; // penalize 2-fold repetition (0..1)
 constexpr int TWO_FOLD_REP_DEN = 4;
-// Shallow forward pruning tuning (pawns, because the engine’s evaluation is pawn-scaled).
+// Shallow forward pruning tuning (pawns, because the engine evaluation is pawn-scaled).
 // Small increases here can noticeably improve depth-per-second without a large tactical risk,
 // as long as they only apply to *late quiet non-checking moves*.
 constexpr Score FUTILITY_MARGIN_D1 = 55; // centipawns
-// Late move pruning (LMP): keep conservative at depth 2–3 only.
+// Late move pruning (LMP): keep conservative at depth 2-3 only.
 [[maybe_unused]] constexpr int LMP_LIMIT_D2 = 10; // 10 stable baseline
 [[maybe_unused]] constexpr int LMP_LIMIT_D3 = 16; // 16 stable baseline
 // Move-count pruning (MCP): history-aware LMP for null-window late quiet moves.
@@ -69,7 +69,7 @@ constexpr int CHECK_EXT_MIN_DEPTH = 2;
 constexpr int CHECK_EXT_MAX_DEPTH = 12;
 constexpr int CHECK_EXT_MAX_PLY = 64;
 // Extend quiet checks always. For checking captures, extend only if the capture is not too losing.
-// (Thresholds around -50 cp tested better than more conservative gates in your recent runs.)
+// The -50 cp threshold keeps the extension narrow without discarding every negative-SEE check.
 constexpr int CHECK_EXT_MIN_SEE_CP = -50;
 constexpr int ONE_REPLY_EXT_MIN_DEPTH = 1;
 constexpr int ONE_REPLY_EXT_MAX_DEPTH = 12;

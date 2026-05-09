@@ -15,7 +15,7 @@
 // Not cached here (depends on other pieces/king squares/occupancy):
 //   - blockade, rook-behind, king-distance adjustments for passed pawns
 //
-// NOTE: Your current testing uses 1 thread. If you later add multi-threading,
+// Current testing uses 1 thread. If multi-threading is added later,
 //       make this table thread-safe (e.g., per-thread pawn hash).
 
 static inline int popcount64(std::uint64_t x) noexcept
@@ -143,7 +143,7 @@ static inline bool pawn_has_phalanx_from_bits(int sq, std::uint64_t our_pawns_bi
 }
 
 // Candidate passer safety gate (pawn-only):
-// Require the next 1–2 push squares to not be controlled by enemy pawns unless also controlled by our pawns.
+// Require the next 1-2 push squares to not be controlled by enemy pawns unless also controlled by our pawns.
 // Control is approximated via pawnAttacksSpan (direct pawn attacks + span).
 static inline bool candidate_push_squares_safe(Color us, int sq, int rel_r,
                                               std::uint64_t our_pawn_span,
@@ -543,7 +543,7 @@ public:
 
                 mid += m;
                 end += e;
-}
+            }
         };
 
         add_candidate_passers(Color::WHITE, pw, pb, ne.pawn_attacks_span_w, ne.pawn_attacks_span_b, w_mid, w_end);
@@ -552,7 +552,7 @@ public:
         ne.pawn_structure_mid_wmb = (w_mid - b_mid);
         ne.pawn_structure_end_wmb = (w_end - b_end);
 
-        // Passed pawns are pawn-only; keep your current definition for now.
+        // Passed pawns are pawn-only here.
         ne.passed_w = passed_pawns_from_bits(Color::WHITE, pw, pb);
         ne.passed_b = passed_pawns_from_bits(Color::BLACK, pb, pw);
 

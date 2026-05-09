@@ -6,7 +6,7 @@
 // Rationale:
 //   - KPK outcomes are cheap to probe, perfectly stable, and remove a major source
 //     of static-eval error in pawn endgames.
-//   - This is especially search-friendly because your pruning gates rely on static eval.
+//   - This is search-friendly because pruning gates rely heavily on static eval.
 
 namespace kpk
 {
