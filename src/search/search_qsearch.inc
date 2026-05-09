@@ -300,6 +300,11 @@ Score qsearch(chess::Board &board,
         const chess::Move move = scored[i].move;
         const bool is_cap = board.isCapture(move) || (move.typeOf() == chess::Move::ENPASSANT);
         const bool gives_check = scored[i].gives_check;
+        const chess::Move previous_move = (ply >= 0 && ply <= MAX_PLY) ? search_stack[ply].move : chess::Move::NO_MOVE;
+        const bool immediate_recapture =
+            is_cap &&
+            previous_move != chess::Move::NO_MOVE &&
+            move.to() == previous_move.to();
         // Delta pruning (skip hopeless tactical moves), but do not delta-prune checking moves.
         {
             Score gain = 0;
@@ -320,7 +325,7 @@ Score qsearch(chess::Board &board,
             }
             if (stand_pat + gain + DELTA_MARGIN <= alpha)
             {
-                if (!gives_check)
+                if (!gives_check && !immediate_recapture)
                     continue;
             }
         }
@@ -332,7 +337,7 @@ Score qsearch(chess::Board &board,
             {
                 constexpr int SEE_QS_PRUNE_CP = 200; // prune only clearly losing captures
                 const int move_see = scored[i].has_see ? scored[i].see : see_cp(board, move);
-                if (move_see < -SEE_QS_PRUNE_CP && !gives_check)
+                if (move_see < -SEE_QS_PRUNE_CP && !gives_check && !immediate_recapture)
                 {
                     continue;
                 }
