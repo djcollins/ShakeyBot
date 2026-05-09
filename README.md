@@ -2,7 +2,7 @@
 
 ShakeyBot is a UCI chess engine written in C++.
 
-It uses hand-crafted evaluation. In local testing against FabChess, a public engine with a listed strength around 2400 Elo, ShakeyBot scored slightly ahead. This is a local estimate, not an official rating-list result.
+It uses hand-crafted evaluation. In local testing against FabChess Version 1.8, a public engine with a listed strength around 2400 Elo, ShakeyBot scored slightly ahead. This is a local estimate, not an official rating-list result.
 
 ## Project Layout
 
@@ -104,7 +104,7 @@ quit
 
 ## Estimated Strength
 
-Local match against FabChess at 10 seconds per 50 moves:
+Local match against FabChess Version 1.8 at 10 seconds per 50 moves:
 
 ```text
 Score of SFB_Previous vs FabChess: 355 - 285 - 106 [0.547]
