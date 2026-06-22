@@ -98,6 +98,73 @@ static inline std::uint64_t eval_config_signature(const EngineConfig &cfg)
     mix_double(cfg.eval.pst);
     mix(cfg.eval.use_stock_pst ? 0xF0F0F0F0F0F0F0F0ULL : 0x0ULL);
 
+    switch (cfg.eval_backend)
+    {
+    case EvalBackend::NeuralDummy:
+        mix(0xD1B54A32D192ED03ULL);
+        break;
+    case EvalBackend::NeuralSimple:
+        mix(0xA24BAED4963EE407ULL);
+        for (unsigned char c : cfg.neural_model_path)
+            mix(static_cast<std::uint64_t>(c));
+        mix(cfg.neural_endgame_fallback ? 0xF1EA5EED12345678ULL : 0x0ULL);
+        mix(static_cast<std::uint64_t>(cfg.neural_endgame_material_limit));
+        mix(cfg.neural_pawn_only_fallback ? 0xBADC0FFEE0DDF00DULL : 0x0ULL);
+        break;
+    case EvalBackend::NeuralAccum:
+        mix(0x8CB92BA72F3D8DD7ULL);
+        for (unsigned char c : cfg.neural_model_path)
+            mix(static_cast<std::uint64_t>(c));
+        mix(cfg.neural_endgame_fallback ? 0xF1EA5EED12345678ULL : 0x0ULL);
+        mix(static_cast<std::uint64_t>(cfg.neural_endgame_material_limit));
+        mix(cfg.neural_pawn_only_fallback ? 0xBADC0FFEE0DDF00DULL : 0x0ULL);
+        break;
+    case EvalBackend::NeuralQuant:
+        mix(0x4E4E5155414E5431ULL);
+        for (unsigned char c : cfg.neural_model_path)
+            mix(static_cast<std::uint64_t>(c));
+        mix(cfg.neural_endgame_fallback ? 0xF1EA5EED12345678ULL : 0x0ULL);
+        mix(static_cast<std::uint64_t>(cfg.neural_endgame_material_limit));
+        mix(cfg.neural_pawn_only_fallback ? 0xBADC0FFEE0DDF00DULL : 0x0ULL);
+        break;
+    case EvalBackend::NeuralQuantAccum:
+        mix(0x51414343554D5631ULL);
+        for (unsigned char c : cfg.neural_model_path)
+            mix(static_cast<std::uint64_t>(c));
+        mix(cfg.neural_endgame_fallback ? 0xF1EA5EED12345678ULL : 0x0ULL);
+        mix(static_cast<std::uint64_t>(cfg.neural_endgame_material_limit));
+        mix(cfg.neural_pawn_only_fallback ? 0xBADC0FFEE0DDF00DULL : 0x0ULL);
+        break;
+    case EvalBackend::NeuralHalfkp:
+        mix(0x48414C464B504631ULL);
+        for (unsigned char c : cfg.neural_model_path)
+            mix(static_cast<std::uint64_t>(c));
+        mix(cfg.neural_endgame_fallback ? 0xF1EA5EED12345678ULL : 0x0ULL);
+        mix(static_cast<std::uint64_t>(cfg.neural_endgame_material_limit));
+        mix(cfg.neural_pawn_only_fallback ? 0xBADC0FFEE0DDF00DULL : 0x0ULL);
+        break;
+    case EvalBackend::NeuralHalfkpQuant:
+        mix(0x484B50514E543031ULL);
+        for (unsigned char c : cfg.neural_model_path)
+            mix(static_cast<std::uint64_t>(c));
+        mix(cfg.neural_endgame_fallback ? 0xF1EA5EED12345678ULL : 0x0ULL);
+        mix(static_cast<std::uint64_t>(cfg.neural_endgame_material_limit));
+        mix(cfg.neural_pawn_only_fallback ? 0xBADC0FFEE0DDF00DULL : 0x0ULL);
+        break;
+    case EvalBackend::NeuralHalfkpQuantAccum:
+        mix(0x484B505141434331ULL);
+        for (unsigned char c : cfg.neural_model_path)
+            mix(static_cast<std::uint64_t>(c));
+        mix(cfg.neural_endgame_fallback ? 0xF1EA5EED12345678ULL : 0x0ULL);
+        mix(static_cast<std::uint64_t>(cfg.neural_endgame_material_limit));
+        mix(cfg.neural_pawn_only_fallback ? 0xBADC0FFEE0DDF00DULL : 0x0ULL);
+        break;
+    case EvalBackend::Hce:
+    default:
+        mix(0x94D049BB133111EBULL);
+        break;
+    }
+
     mix(cfg.enable_endgame_scaling ? 0x123456789ABCDEF0ULL : 0x0ULL);
 
     // Final avalanche.

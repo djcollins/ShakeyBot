@@ -9,6 +9,7 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include <vector>
 
 #include "chess.hpp"
 #include "fast_engine/engine.hpp"
@@ -17,6 +18,7 @@
 
 using fast_engine::Engine;
 using fast_engine::EngineConfig;
+using fast_engine::EvalBackend;
 using fast_engine::IterationCallback;
 using fast_engine::IterationInfo;
 using fast_engine::Score;
@@ -30,6 +32,93 @@ static bool parse_bool_option(std::string v)
     for (char &c : v)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return v == "1" || v == "true" || v == "yes" || v == "on";
+}
+
+static const char *eval_backend_uci_name(EvalBackend backend) noexcept
+{
+    switch (backend)
+    {
+    case EvalBackend::NeuralSimple:
+        return "neural_simple";
+    case EvalBackend::NeuralAccum:
+        return "neural_accum";
+    case EvalBackend::NeuralQuant:
+        return "neural_quant";
+    case EvalBackend::NeuralQuantAccum:
+        return "neural_quant_accum";
+    case EvalBackend::NeuralHalfkp:
+        return "neural_halfkp";
+    case EvalBackend::NeuralHalfkpQuant:
+        return "neural_halfkp_quant";
+    case EvalBackend::NeuralHalfkpQuantAccum:
+        return "neural_halfkp_quant_accum";
+    case EvalBackend::NeuralDummy:
+        return "neural_dummy";
+    case EvalBackend::Hce:
+    default:
+        return "hce";
+    }
+}
+
+static bool backend_uses_float_model(EvalBackend backend) noexcept
+{
+    return backend == EvalBackend::NeuralSimple ||
+           backend == EvalBackend::NeuralAccum ||
+           backend == EvalBackend::NeuralHalfkp;
+}
+
+static bool backend_uses_quant_model(EvalBackend backend) noexcept
+{
+    return backend == EvalBackend::NeuralQuant ||
+           backend == EvalBackend::NeuralQuantAccum ||
+           backend == EvalBackend::NeuralHalfkpQuant ||
+           backend == EvalBackend::NeuralHalfkpQuantAccum;
+}
+
+static bool backend_uses_halfkp_float_model(EvalBackend backend) noexcept
+{
+    return backend == EvalBackend::NeuralHalfkp;
+}
+
+static bool backend_uses_halfkp_quant_model(EvalBackend backend) noexcept
+{
+    return backend == EvalBackend::NeuralHalfkpQuant ||
+           backend == EvalBackend::NeuralHalfkpQuantAccum;
+}
+
+static bool backend_uses_external_model(EvalBackend backend) noexcept
+{
+    return backend_uses_float_model(backend) ||
+           backend_uses_quant_model(backend);
+}
+
+static bool option_changes_static_eval(const std::string &name) noexcept
+{
+    return name == "EvalBackend" ||
+           name == "NeuralModelPath" ||
+           name == "NeuralEndgameFallback" ||
+           name == "NeuralEndgameMaterialLimit" ||
+           name == "NeuralPawnOnlyFallback" ||
+           name == "MaterialScale" ||
+           name == "ImbalanceScale" ||
+           name == "KingCrowdingScale" ||
+           name == "MobilityScale" ||
+           name == "XRayScale" ||
+           name == "SpaceScale" ||
+           name == "OutpostScale" ||
+           name == "ClosednessScale" ||
+           name == "PawnStructureScale" ||
+           name == "PassedPawnScale" ||
+           name == "ComplexityScale" ||
+           name == "RookActivityScale" ||
+           name == "KingSafetyScale" ||
+           name == "BishopPairScale" ||
+           name == "PSTScale" ||
+           name == "UseStockPST" ||
+           name == "ThreatTerm" ||
+           name == "QueenVulnerabilityScale" ||
+           name == "TempoBonus" ||
+           name == "EnableEndgameScaling";
 }
 
 // Score formatting.
@@ -83,6 +172,79 @@ struct UciIO
     }
 };
 
+static bool model_loaded_for_backend(EvalBackend backend) noexcept;
+static bool load_model_for_backend(EvalBackend backend, const std::string &path, std::string &error);
+
+static bool ensure_neural_model_loaded_for_config(const EngineConfig &config, UciIO *io = nullptr)
+{
+    if (!backend_uses_external_model(config.eval_backend))
+        return true;
+
+    const std::string *loaded_path = nullptr;
+    if (backend_uses_halfkp_float_model(config.eval_backend))
+        loaded_path = &fast_engine::neural_halfkp_model_path();
+    else if (backend_uses_halfkp_quant_model(config.eval_backend))
+        loaded_path = &fast_engine::neural_halfkp_quant_model_path();
+    else if (backend_uses_float_model(config.eval_backend))
+        loaded_path = &fast_engine::neural_simple_model_path();
+    else if (backend_uses_quant_model(config.eval_backend))
+        loaded_path = &fast_engine::neural_quant_model_path();
+
+    if (model_loaded_for_backend(config.eval_backend) &&
+        loaded_path &&
+        *loaded_path == config.neural_model_path)
+        return true;
+    if (config.neural_model_path.empty())
+        return false;
+
+    std::string error;
+    if (load_model_for_backend(config.eval_backend, config.neural_model_path, error))
+    {
+        if (io)
+            io->send("info string NeuralModelPath loaded " + config.neural_model_path);
+        return true;
+    }
+
+    if (io)
+        io->send("info string NeuralModelPath load failed: " + error);
+    return false;
+}
+
+static bool model_loaded_for_backend(EvalBackend backend) noexcept
+{
+    if (backend_uses_float_model(backend))
+    {
+        if (backend_uses_halfkp_float_model(backend))
+            return fast_engine::neural_halfkp_model_loaded();
+        return fast_engine::neural_simple_model_loaded();
+    }
+    if (backend_uses_quant_model(backend))
+    {
+        if (backend_uses_halfkp_quant_model(backend))
+            return fast_engine::neural_halfkp_quant_model_loaded();
+        return fast_engine::neural_quant_model_loaded();
+    }
+    return true;
+}
+
+static bool load_model_for_backend(EvalBackend backend, const std::string &path, std::string &error)
+{
+    if (backend_uses_float_model(backend))
+    {
+        if (backend_uses_halfkp_float_model(backend))
+            return fast_engine::load_neural_halfkp_model(path, error);
+        return fast_engine::load_neural_simple_model(path, error);
+    }
+    if (backend_uses_quant_model(backend))
+    {
+        if (backend_uses_halfkp_quant_model(backend))
+            return fast_engine::load_neural_halfkp_quant_model(path, error);
+        return fast_engine::load_neural_quant_model(path, error);
+    }
+    error.clear();
+    return true;
+}
+
 // Iteration "info" output.
 
 static void print_iteration_info(UciIO &io, const IterationInfo &iter)
@@ -127,7 +289,8 @@ static std::string trim(const std::string &s)
 
 static void handle_setoption(const std::string &line,
                              EngineConfig &config,
-                             std::unique_ptr<Engine> &engine)
+                             std::unique_ptr<Engine> &engine,
+                             UciIO &io)
 {
     std::string rest = line.substr(std::string("setoption").size());
     rest = trim(rest);
@@ -162,6 +325,111 @@ static void handle_setoption(const std::string &line,
     {
         if (!value.empty())
             config.search_depth = std::stoi(value);
+    }
+    else if (name == "EvalBackend")
+    {
+        if (!value.empty())
+        {
+            const std::string v = to_lower(value);
+            if (v == "hce")
+                config.eval_backend = EvalBackend::Hce;
+            else if (v == "neural_dummy" || v == "neuraldummy")
+                config.eval_backend = EvalBackend::NeuralDummy;
+            else if (v == "neural_simple" || v == "neuralsimple")
+            {
+                config.eval_backend = EvalBackend::NeuralSimple;
+                if (!model_loaded_for_backend(config.eval_backend))
+                    io.send("info string EvalBackend neural_simple selected but no NeuralModelPath is loaded");
+            }
+            else if (v == "neural_accum" || v == "neuralaccum")
+            {
+                config.eval_backend = EvalBackend::NeuralAccum;
+                if (!model_loaded_for_backend(config.eval_backend))
+                    io.send("info string EvalBackend neural_accum selected but no NeuralModelPath is loaded");
+            }
+            else if (v == "neural_quant" || v == "neuralquant")
+            {
+                config.eval_backend = EvalBackend::NeuralQuant;
+                if (!model_loaded_for_backend(config.eval_backend))
+                    io.send("info string EvalBackend neural_quant selected but no quantized NeuralModelPath is loaded");
+            }
+            else if (v == "neural_quant_accum" || v == "neuralquantaccum")
+            {
+                config.eval_backend = EvalBackend::NeuralQuantAccum;
+                if (!model_loaded_for_backend(config.eval_backend))
+                    io.send("info string EvalBackend neural_quant_accum selected but no quantized NeuralModelPath is loaded");
+            }
+            else if (v == "neural_halfkp" || v == "neuralhalfkp")
+            {
+                config.eval_backend = EvalBackend::NeuralHalfkp;
+                if (!model_loaded_for_backend(config.eval_backend))
+                    io.send("info string EvalBackend neural_halfkp selected but no HalfKP NeuralModelPath is loaded");
+            }
+            else if (v == "neural_halfkp_quant" || v == "neuralhalfkpquant")
+            {
+                config.eval_backend = EvalBackend::NeuralHalfkpQuant;
+                if (!model_loaded_for_backend(config.eval_backend))
+                    io.send("info string EvalBackend neural_halfkp_quant selected but no HalfKP quantized NeuralModelPath is loaded");
+            }
+            else if (v == "neural_halfkp_quant_accum" || v == "neuralhalfkpquantaccum")
+            {
+                config.eval_backend = EvalBackend::NeuralHalfkpQuantAccum;
+                if (!model_loaded_for_backend(config.eval_backend))
+                    io.send("info string EvalBackend neural_halfkp_quant_accum selected but no HalfKP quantized NeuralModelPath is loaded");
+            }
+        }
+    }
+    else if (name == "NeuralModelPath")
+    {
+        if (value.empty())
+        {
+            fast_engine::unload_neural_simple_model();
+            fast_engine::unload_neural_quant_model();
+            fast_engine::unload_neural_halfkp_model();
+            fast_engine::unload_neural_halfkp_quant_model();
+            config.neural_model_path.clear();
+            io.send("info string NeuralModelPath cleared");
+        }
+        else
+        {
+            config.neural_model_path = value;
+            if (backend_uses_external_model(config.eval_backend))
+            {
+                std::string error;
+                if (load_model_for_backend(config.eval_backend, value, error))
+                    io.send("info string NeuralModelPath loaded " + value);
+                else
+                    io.send("info string NeuralModelPath load failed: " + error);
+            }
+            else
+            {
+                io.send("info string NeuralModelPath set " + value);
+            }
+        }
+    }
+    else if (name == "NeuralEndgameFallback")
+    {
+        if (!value.empty())
+            config.neural_endgame_fallback = parse_bool_option(value);
+    }
+    else if (name == "NeuralEndgameMaterialLimit")
+    {
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(40, v));
+            config.neural_endgame_material_limit = v;
+        }
+    }
+    else if (name == "NeuralPawnOnlyFallback")
+    {
+        if (!value.empty())
+            config.neural_pawn_only_fallback = parse_bool_option(value);
+    }
+    else if (name == "NeuralAccumulatorCheck")
+    {
+        if (!value.empty())
+            config.neural_accumulator_check = parse_bool_option(value);
     }
     else if (name == "MaterialScale")
     {
@@ -568,7 +836,272 @@ static void handle_setoption(const std::string &line,
     }
 
     if (engine)
+    {
         engine->setConfig(config);
+        if (option_changes_static_eval(name))
+        {
+            engine->clearTT();
+            fast_engine::clear_eval_cache();
+        }
+    }
+}
+
+static bool neural_backend_ready(const EngineConfig &config, UciIO &io)
+{
+    if (!backend_uses_external_model(config.eval_backend))
+        return true;
+    if (ensure_neural_model_loaded_for_config(config, &io))
+        return true;
+    io.send("info string selected neural backend requires a valid NeuralModelPath before go");
+    return false;
+}
+
+struct AccumulatorSelfTest
+{
+    int checks = 0;
+    int failures = 0;
+    fast_engine::NeuralAccumulatorStats stats{};
+    std::vector<std::string> messages;
+};
+
+static EngineConfig accumulator_test_config(const EngineConfig &config, EvalBackend backend)
+{
+    EngineConfig cfg = config;
+    cfg.eval_backend = backend;
+    cfg.neural_endgame_fallback = false;
+    cfg.neural_accumulator_check = false;
+    return cfg;
+}
+
+static bool check_accumulator_position(const std::string &label,
+                                       const chess::Board &board,
+                                       const EngineConfig &accum_cfg,
+                                       const EngineConfig &stateless_cfg,
+                                       fast_engine::NeuralAccumulator &accum,
+                                       AccumulatorSelfTest &test)
+{
+    fast_engine::clear_eval_cache();
+    const Score accum_score = fast_engine::evaluate_white_pov_with_accumulator(board, accum_cfg, &accum, &test.stats);
+
+    fast_engine::clear_eval_cache();
+    const Score stateless_score = fast_engine::evaluate_white_pov_with_config(board, stateless_cfg);
+
+    ++test.checks;
+    const int diff = std::abs(static_cast<int>(accum_score) - static_cast<int>(stateless_score));
+    const bool hash_match = fast_engine::neural_accumulator_matches(board, accum_cfg, accum);
+    if (diff <= 1 && hash_match)
+        return true;
+
+    ++test.failures;
+    if (test.messages.size() < 12)
+    {
+        std::ostringstream msg;
+        msg << label << " accum=" << accum_score
+            << " stateless=" << stateless_score
+            << " hash_match=" << (hash_match ? 1 : 0);
+        test.messages.push_back(msg.str());
+    }
+    return false;
+}
+
+static bool apply_accumulator_test_move(chess::Board &board,
+                                        const chess::Move &move,
+                                        fast_engine::NeuralAccumulator &accum,
+                                        const EngineConfig &accum_cfg,
+                                        const EngineConfig &stateless_cfg,
+                                        const std::string &label,
+                                        AccumulatorSelfTest &test)
+{
+    fast_engine::NeuralAccumulator child{};
+    if (!fast_engine::update_neural_accumulator_for_move(accum, board, move, accum_cfg, child, &test.stats))
+    {
+        ++test.failures;
+        if (test.messages.size() < 12)
+            test.messages.push_back(label + " failed to update accumulator delta");
+        return false;
+    }
+
+    board.makeMove(move);
+    child.board_hash = board.hash();
+    accum = child;
+    return check_accumulator_position(label, board, accum_cfg, stateless_cfg, accum, test);
+}
+
+static bool run_single_move_accumulator_case(const std::string &label,
+                                             const std::string &fen,
+                                             const std::string &uci_move,
+                                             const EngineConfig &accum_cfg,
+                                             const EngineConfig &stateless_cfg,
+                                             AccumulatorSelfTest &test)
+{
+    chess::Board board(fen);
+    fast_engine::NeuralAccumulator accum{};
+    fast_engine::refresh_neural_accumulator_for_config(board, accum_cfg, accum, &test.stats);
+    check_accumulator_position(label + " root", board, accum_cfg, stateless_cfg, accum, test);
+
+    const chess::Move move = chess::uci::uciToMove(board, uci_move);
+    if (move == chess::Move::NO_MOVE)
+    {
+        ++test.failures;
+        if (test.messages.size() < 12)
+            test.messages.push_back(label + " could not parse legal move " + uci_move);
+        return false;
+    }
+
+    return apply_accumulator_test_move(board, move, accum, accum_cfg, stateless_cfg, label + " " + uci_move, test);
+}
+
+static std::uint64_t next_accumulator_test_rng(std::uint64_t &state) noexcept
+{
+    state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+    return state;
+}
+
+static bool run_random_accumulator_sequence(const EngineConfig &accum_cfg,
+                                            const EngineConfig &stateless_cfg,
+                                            AccumulatorSelfTest &test)
+{
+    chess::Board board;
+    fast_engine::NeuralAccumulator accum{};
+    fast_engine::refresh_neural_accumulator_for_config(board, accum_cfg, accum, &test.stats);
+    check_accumulator_position("random root", board, accum_cfg, stateless_cfg, accum, test);
+
+    std::vector<chess::Move> moves;
+    std::vector<fast_engine::NeuralAccumulator> parents;
+    std::uint64_t rng = 0xC0FFEE1234ABCDEFULL;
+
+    for (int ply = 0; ply < 160; ++ply)
+    {
+        chess::Movelist legal;
+        chess::movegen::legalmoves(legal, board);
+        if (legal.empty())
+            break;
+
+        const int index = static_cast<int>((next_accumulator_test_rng(rng) >> 32) % static_cast<std::uint64_t>(legal.size()));
+        const chess::Move move = legal[index];
+        parents.push_back(accum);
+        moves.push_back(move);
+        if (!apply_accumulator_test_move(board, move, accum, accum_cfg, stateless_cfg, "random make ply " + std::to_string(ply), test))
+            return false;
+    }
+
+    for (int i = static_cast<int>(moves.size()) - 1; i >= 0; --i)
+    {
+        board.unmakeMove(moves[static_cast<std::size_t>(i)]);
+        accum = parents[static_cast<std::size_t>(i)];
+        check_accumulator_position("random unmake ply " + std::to_string(i), board, accum_cfg, stateless_cfg, accum, test);
+    }
+
+    return test.failures == 0;
+}
+
+static bool run_neural_accumulator_selftest(const EngineConfig &config, UciIO &io)
+{
+    EvalBackend accum_backend = config.eval_backend;
+    if (!fast_engine::neural_accumulator_backend_active(config))
+        accum_backend = EvalBackend::NeuralQuantAccum;
+
+    EvalBackend stateless_backend = EvalBackend::NeuralSimple;
+    switch (accum_backend)
+    {
+    case EvalBackend::NeuralHalfkpQuantAccum:
+        stateless_backend = EvalBackend::NeuralHalfkpQuant;
+        break;
+    case EvalBackend::NeuralQuantAccum:
+        stateless_backend = EvalBackend::NeuralQuant;
+        break;
+    case EvalBackend::NeuralAccum:
+    default:
+        accum_backend = EvalBackend::NeuralAccum;
+        stateless_backend = EvalBackend::NeuralSimple;
+        break;
+    }
+
+    const EngineConfig accum_cfg = accumulator_test_config(config, accum_backend);
+    const EngineConfig stateless_cfg = accumulator_test_config(config, stateless_backend);
+    if (!neural_backend_ready(accum_cfg, io))
+    {
+        io.send("info string nnaccumtest failed could not load configured neural model");
+        return false;
+    }
+
+    AccumulatorSelfTest test{};
+
+    run_single_move_accumulator_case("startpos quiet",
+                                     chess::constants::STARTPOS,
+                                     "e2e4",
+                                     accum_cfg,
+                                     stateless_cfg,
+                                     test);
+    run_single_move_accumulator_case("capture",
+                                     "4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1",
+                                     "e4d5",
+                                     accum_cfg,
+                                     stateless_cfg,
+                                     test);
+    run_single_move_accumulator_case("en passant",
+                                     "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1",
+                                     "e5d6",
+                                     accum_cfg,
+                                     stateless_cfg,
+                                     test);
+    run_single_move_accumulator_case("white kingside castle",
+                                     "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+                                     "e1g1",
+                                     accum_cfg,
+                                     stateless_cfg,
+                                     test);
+    run_single_move_accumulator_case("black queenside castle",
+                                     "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1",
+                                     "e8c8",
+                                     accum_cfg,
+                                     stateless_cfg,
+                                     test);
+
+    for (const std::string promo : {"q", "r", "b", "n"})
+    {
+        run_single_move_accumulator_case("white promotion " + promo,
+                                         "r3k3/6P1/8/8/8/8/8/4K3 w - - 0 1",
+                                         "g7g8" + promo,
+                                         accum_cfg,
+                                         stateless_cfg,
+                                         test);
+        run_single_move_accumulator_case("white capture promotion " + promo,
+                                         "4k2r/6P1/8/8/8/8/8/4K3 w - - 0 1",
+                                         "g7h8" + promo,
+                                         accum_cfg,
+                                         stateless_cfg,
+                                         test);
+        run_single_move_accumulator_case("black promotion " + promo,
+                                         "4k3/8/8/8/8/8/6p1/4K2R b - - 0 1",
+                                         "g2g1" + promo,
+                                         accum_cfg,
+                                         stateless_cfg,
+                                         test);
+        run_single_move_accumulator_case("black capture promotion " + promo,
+                                         "4k3/8/8/8/8/8/6p1/4K2R b - - 0 1",
+                                         "g2h1" + promo,
+                                         accum_cfg,
+                                         stateless_cfg,
+                                         test);
+    }
+
+    run_random_accumulator_sequence(accum_cfg, stateless_cfg, test);
+
+    for (const std::string &message : test.messages)
+        io.send("info string nnaccumtest " + message);
+
+    std::ostringstream summary;
+    summary << "info string nnaccumtest "
+            << (test.failures == 0 ? "ok" : "failed")
+            << " checks=" << test.checks
+            << " failures=" << test.failures
+            << " refreshes=" << test.stats.refreshes
+            << " invalid=" << test.stats.invalid_fallbacks
+            << " deltas=" << test.stats.delta_updates
+            << " check_failures=" << test.stats.check_failures;
+    io.send(summary.str());
+    return test.failures == 0;
 }
 
 // Position parsing.
@@ -854,7 +1387,11 @@ static void print_search_output(UciIO &io,
             << " jump=" << result.final_score_jump
             << " gap=" << result.final_bestmove_gap
             << " share=" << std::setprecision(3) << result.final_bestmove_subtree_share
-            << " ttq=" << static_cast<int>(result.final_root_tt_quality);
+            << " ttq=" << static_cast<int>(result.final_root_tt_quality)
+            << " nnAccRefresh=" << result.neural_accumulator.refreshes
+            << " nnAccInvalid=" << result.neural_accumulator.invalid_fallbacks
+            << " nnAccDelta=" << result.neural_accumulator.delta_updates
+            << " nnAccCheckFail=" << result.neural_accumulator.check_failures;
 
         io.log(dbg.str());
     }
@@ -1136,6 +1673,13 @@ int main()
             io.send("option name MoveOverhead type spin default " + std::to_string(config.move_overhead_ms) + " min 0 max 2000");
             io.send("option name Ponder type check default " + std::string(as_bool(config.ponder)));
 
+            io.send("option name EvalBackend type combo default " + std::string(eval_backend_uci_name(config.eval_backend)) + " var hce var neural_dummy var neural_simple var neural_accum var neural_quant var neural_quant_accum var neural_halfkp var neural_halfkp_quant var neural_halfkp_quant_accum");
+            io.send("option name NeuralModelPath type string default " + config.neural_model_path);
+            io.send("option name NeuralEndgameFallback type check default " + std::string(as_bool(config.neural_endgame_fallback)));
+            io.send("option name NeuralEndgameMaterialLimit type spin default " + std::to_string(config.neural_endgame_material_limit) + " min 0 max 40");
+            io.send("option name NeuralPawnOnlyFallback type check default " + std::string(as_bool(config.neural_pawn_only_fallback)));
+            io.send("option name NeuralAccumulatorCheck type check default " + std::string(as_bool(config.neural_accumulator_check)));
+
             // Evaluation scales are exposed as x100 integer multipliers.
             io.send("option name MaterialScale type spin default " + std::to_string(to_cp(config.eval.material)) + " min 0 max 300");
             io.send("option name ImbalanceScale type spin default " + std::to_string(to_cp(config.eval.imbalance)) + " min 0 max 300");
@@ -1204,7 +1748,7 @@ int main()
         {
             // If a search is running, stop it first to avoid reconfiguring mid-search.
             handle_stop(worker, StopReason::Internal, /*suppress_output=*/true);
-            handle_setoption(line, config, engine);
+            handle_setoption(line, config, engine, io);
         }
         else if (line == "ucinewgame")
         {
@@ -1226,8 +1770,19 @@ int main()
             handle_stop(worker, StopReason::Internal, /*suppress_output=*/true);
             (void)handle_position(line, board);
         }
+        else if (line == "nnaccumtest")
+        {
+            handle_stop(worker, StopReason::Internal, /*suppress_output=*/true);
+            (void)run_neural_accumulator_selftest(config, io);
+        }
         else if (line.rfind("go", 0) == 0)
         {
+            if (!neural_backend_ready(config, io))
+            {
+                io.send("bestmove 0000");
+                continue;
+            }
+
             if (!engine)
                 engine = std::make_unique<Engine>(config);
 

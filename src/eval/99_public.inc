@@ -13,28 +13,9 @@ Score evaluate_material(const Board &board)
     return pawns_to_cp(base + imb);
 }
 
-Score evaluate_white_pov_with_config(const Board &board,
-                                     const EngineConfig &cfg)
+static Score evaluate_hce_white_pov_uncached(const Board &board,
+                                             const EngineConfig &cfg)
 {
-    // Full-eval cache: avoids recomputing expensive terms (mobility, king safety,
-    // pawn structure) for positions reached repeatedly in the tree.
-    const std::uint64_t k = eval_cache_key(board, cfg);
-    Score cached = 0;
-    if (eval_cache_table().probe(k, cached))
-        return cached;
-
-    // Exact KPK (K+P vs K) bitbase probe.
-    // This is perfectly stable and prevents static-eval based pruning gates from
-    // mis-evaluating pawn endgames.
-    {
-        Score kpk_eval = 0;
-        if (probe_kpk_exact_eval_white_pov(board, kpk_eval))
-        {
-            eval_cache_table().store(k, kpk_eval);
-            return kpk_eval;
-        }
-    }
-
     // Single phase signal reused by tapered terms:
     // opening-heavy at low values, endgame-heavy near 256.
     const int phase_0_256 = compute_phase_0_256(board);
@@ -166,7 +147,170 @@ Score evaluate_white_pov_with_config(const Board &board,
         score *= complexity_scale;
     }
 
-    const Score result = pawns_to_cp(score);
+    return pawns_to_cp(score);
+}
+
+static int count_piece_type_both(const Board &board, PieceType type)
+{
+    return static_cast<int>(board.pieces(type, Color::WHITE).count() +
+                            board.pieces(type, Color::BLACK).count());
+}
+
+static bool neural_should_use_hce_endgame_fallback(const Board &board,
+                                                   const EngineConfig &cfg)
+{
+    if (!cfg.neural_endgame_fallback)
+        return false;
+
+    const int pawns = count_piece_type_both(board, PieceType::PAWN);
+    const int knights = count_piece_type_both(board, PieceType::KNIGHT);
+    const int bishops = count_piece_type_both(board, PieceType::BISHOP);
+    const int rooks = count_piece_type_both(board, PieceType::ROOK);
+    const int queens = count_piece_type_both(board, PieceType::QUEEN);
+
+    const int non_pawn_units = 3 * (knights + bishops) + 5 * rooks + 9 * queens;
+    const int total_units = pawns + non_pawn_units;
+
+    if (total_units > cfg.neural_endgame_material_limit)
+        return false;
+    if (non_pawn_units == 0 && !cfg.neural_pawn_only_fallback)
+        return false;
+
+    return true;
+}
+
+Score evaluate_white_pov_with_config(const Board &board,
+                                     const EngineConfig &cfg)
+{
+    // Full-eval cache: avoids recomputing expensive terms (mobility, king safety,
+    // pawn structure) or neural inference for positions reached repeatedly in the tree.
+    const std::uint64_t k = eval_cache_key(board, cfg);
+    Score cached = 0;
+    if (eval_cache_table().probe(k, cached))
+        return cached;
+
+    Score result = 0;
+    // Exact KPK (K+P vs K) is stable enough to apply before backend dispatch.
+    if (probe_kpk_exact_eval_white_pov(board, result))
+    {
+        eval_cache_table().store(k, result);
+        return result;
+    }
+
+    if ((cfg.eval_backend == EvalBackend::NeuralSimple ||
+         cfg.eval_backend == EvalBackend::NeuralAccum ||
+         cfg.eval_backend == EvalBackend::NeuralQuant ||
+         cfg.eval_backend == EvalBackend::NeuralQuantAccum ||
+         cfg.eval_backend == EvalBackend::NeuralHalfkp ||
+         cfg.eval_backend == EvalBackend::NeuralHalfkpQuant ||
+         cfg.eval_backend == EvalBackend::NeuralHalfkpQuantAccum) &&
+        neural_should_use_hce_endgame_fallback(board, cfg))
+    {
+        result = evaluate_hce_white_pov_uncached(board, cfg);
+    }
+    else if (cfg.eval_backend == EvalBackend::NeuralSimple ||
+             cfg.eval_backend == EvalBackend::NeuralAccum)
+        result = evaluate_neural_simple_white_pov(board);
+    else if (cfg.eval_backend == EvalBackend::NeuralQuant ||
+             cfg.eval_backend == EvalBackend::NeuralQuantAccum)
+        result = evaluate_neural_quant_white_pov(board);
+    else if (cfg.eval_backend == EvalBackend::NeuralHalfkp)
+        result = evaluate_neural_halfkp_white_pov(board);
+    else if (cfg.eval_backend == EvalBackend::NeuralHalfkpQuant ||
+             cfg.eval_backend == EvalBackend::NeuralHalfkpQuantAccum)
+        result = evaluate_neural_halfkp_quant_white_pov(board);
+    else if (cfg.eval_backend == EvalBackend::NeuralDummy)
+        result = evaluate_neural_dummy_white_pov(board);
+    else
+        result = evaluate_hce_white_pov_uncached(board, cfg);
+
+    eval_cache_table().store(k, result);
+    return result;
+}
+
+Score evaluate_white_pov_with_accumulator(const Board &board,
+                                          const EngineConfig &cfg,
+                                          NeuralAccumulator *accum,
+                                          NeuralAccumulatorStats *stats)
+{
+    if (cfg.eval_backend != EvalBackend::NeuralAccum &&
+        cfg.eval_backend != EvalBackend::NeuralQuantAccum &&
+        cfg.eval_backend != EvalBackend::NeuralHalfkpQuantAccum)
+        return evaluate_white_pov_with_config(board, cfg);
+
+    const std::uint64_t k = eval_cache_key(board, cfg);
+    Score cached = 0;
+    if (eval_cache_table().probe(k, cached))
+        return cached;
+
+    Score result = 0;
+    if (probe_kpk_exact_eval_white_pov(board, result))
+    {
+        eval_cache_table().store(k, result);
+        return result;
+    }
+
+    if (neural_should_use_hce_endgame_fallback(board, cfg))
+    {
+        result = evaluate_hce_white_pov_uncached(board, cfg);
+    }
+    else if (cfg.eval_backend == EvalBackend::NeuralAccum)
+    {
+        NeuralAccumulator local{};
+        NeuralAccumulator &use_accum = accum ? *accum : local;
+        if (!neural_simple_accumulator_matches_impl(board, use_accum))
+        {
+            if (stats)
+                ++stats->invalid_fallbacks;
+            refresh_neural_simple_accumulator_impl(board, use_accum, stats);
+        }
+        result = evaluate_neural_simple_accumulator_white_pov(use_accum);
+        if (cfg.neural_accumulator_check)
+        {
+            const Score stateless = evaluate_neural_simple_white_pov(board);
+            if (std::abs(static_cast<int>(result) - static_cast<int>(stateless)) >
+                    static_cast<int>(NEURAL_ACCUMULATOR_FLOAT_TOLERANCE_CP) &&
+                stats)
+                ++stats->check_failures;
+        }
+    }
+    else if (cfg.eval_backend == EvalBackend::NeuralQuantAccum)
+    {
+        NeuralAccumulator local{};
+        NeuralAccumulator &use_accum = accum ? *accum : local;
+        if (!neural_quant_accumulator_matches_impl(board, use_accum))
+        {
+            if (stats)
+                ++stats->invalid_fallbacks;
+            refresh_neural_quant_accumulator_impl(board, use_accum, stats);
+        }
+        result = evaluate_neural_quant_accumulator_white_pov(use_accum);
+        if (cfg.neural_accumulator_check)
+        {
+            const Score stateless = evaluate_neural_quant_white_pov(board);
+            if (result != stateless && stats)
+                ++stats->check_failures;
+        }
+    }
+    else
+    {
+        NeuralAccumulator local{};
+        NeuralAccumulator &use_accum = accum ? *accum : local;
+        if (!neural_halfkp_quant_accumulator_matches_impl(board, use_accum))
+        {
+            if (stats)
+                ++stats->invalid_fallbacks;
+            refresh_neural_halfkp_quant_accumulator_impl(board, use_accum, stats);
+        }
+        result = evaluate_neural_halfkp_quant_accumulator_white_pov(board, use_accum);
+        if (cfg.neural_accumulator_check)
+        {
+            const Score stateless = evaluate_neural_halfkp_quant_white_pov(board);
+            if (std::abs(static_cast<int>(result) - static_cast<int>(stateless)) > 1 && stats)
+                ++stats->check_failures;
+        }
+    }
+
     eval_cache_table().store(k, result);
     return result;
 }
@@ -190,6 +334,182 @@ Score evaluate_for_side_to_move_with_config(const Board &board,
 void clear_eval_cache()
 {
     eval_cache_table().clear();
+}
+
+bool load_neural_simple_model(const std::string &path, std::string &error)
+{
+    const bool ok = load_neural_simple_model_impl(path, error);
+    clear_eval_cache();
+    return ok;
+}
+
+void unload_neural_simple_model()
+{
+    unload_neural_simple_model_impl();
+    clear_eval_cache();
+}
+
+bool neural_simple_model_loaded()
+{
+    return neural_simple_model_loaded_impl();
+}
+
+const std::string &neural_simple_model_path()
+{
+    return neural_simple_model_path_impl();
+}
+
+bool load_neural_quant_model(const std::string &path, std::string &error)
+{
+    const bool ok = load_neural_quant_model_impl(path, error);
+    clear_eval_cache();
+    return ok;
+}
+
+void unload_neural_quant_model()
+{
+    unload_neural_quant_model_impl();
+    clear_eval_cache();
+}
+
+bool neural_quant_model_loaded()
+{
+    return neural_quant_model_loaded_impl();
+}
+
+const std::string &neural_quant_model_path()
+{
+    return neural_quant_model_path_impl();
+}
+
+bool load_neural_halfkp_model(const std::string &path, std::string &error)
+{
+    const bool ok = load_neural_halfkp_model_impl(path, error);
+    clear_eval_cache();
+    return ok;
+}
+
+void unload_neural_halfkp_model()
+{
+    unload_neural_halfkp_model_impl();
+    clear_eval_cache();
+}
+
+bool neural_halfkp_model_loaded()
+{
+    return neural_halfkp_model_loaded_impl();
+}
+
+const std::string &neural_halfkp_model_path()
+{
+    return neural_halfkp_model_path_impl();
+}
+
+bool load_neural_halfkp_quant_model(const std::string &path, std::string &error)
+{
+    const bool ok = load_neural_halfkp_quant_model_impl(path, error);
+    clear_eval_cache();
+    return ok;
+}
+
+void unload_neural_halfkp_quant_model()
+{
+    unload_neural_halfkp_quant_model_impl();
+    clear_eval_cache();
+}
+
+bool neural_halfkp_quant_model_loaded()
+{
+    return neural_halfkp_quant_model_loaded_impl();
+}
+
+const std::string &neural_halfkp_quant_model_path()
+{
+    return neural_halfkp_quant_model_path_impl();
+}
+
+bool neural_accumulator_backend_active(const EngineConfig &cfg) noexcept
+{
+    return cfg.eval_backend == EvalBackend::NeuralAccum ||
+           cfg.eval_backend == EvalBackend::NeuralQuantAccum ||
+           cfg.eval_backend == EvalBackend::NeuralHalfkpQuantAccum;
+}
+
+bool neural_simple_accumulator_matches(const Board &board,
+                                       const NeuralAccumulator &accum) noexcept
+{
+    return neural_simple_accumulator_matches_impl(board, accum);
+}
+
+void refresh_neural_simple_accumulator(const Board &board,
+                                       NeuralAccumulator &accum,
+                                       NeuralAccumulatorStats *stats)
+{
+    refresh_neural_simple_accumulator_impl(board, accum, stats);
+}
+
+bool update_neural_simple_accumulator_for_move(const NeuralAccumulator &parent,
+                                               const Board &board,
+                                               const chess::Move &move,
+                                               NeuralAccumulator &child,
+                                               NeuralAccumulatorStats *stats)
+{
+    return update_neural_simple_accumulator_for_move_impl(parent, board, move, child, stats);
+}
+
+bool neural_accumulator_matches(const Board &board,
+                                const EngineConfig &cfg,
+                                const NeuralAccumulator &accum) noexcept
+{
+    if (cfg.eval_backend == EvalBackend::NeuralQuantAccum)
+        return neural_quant_accumulator_matches_impl(board, accum);
+    if (cfg.eval_backend == EvalBackend::NeuralHalfkpQuantAccum)
+        return neural_halfkp_quant_accumulator_matches_impl(board, accum);
+    return neural_simple_accumulator_matches_impl(board, accum);
+}
+
+void refresh_neural_accumulator_for_config(const Board &board,
+                                           const EngineConfig &cfg,
+                                           NeuralAccumulator &accum,
+                                           NeuralAccumulatorStats *stats)
+{
+    if (cfg.eval_backend == EvalBackend::NeuralQuantAccum)
+        refresh_neural_quant_accumulator_impl(board, accum, stats);
+    else if (cfg.eval_backend == EvalBackend::NeuralHalfkpQuantAccum)
+        refresh_neural_halfkp_quant_accumulator_impl(board, accum, stats);
+    else
+        refresh_neural_simple_accumulator_impl(board, accum, stats);
+}
+
+void copy_neural_accumulator_for_config(const NeuralAccumulator &parent,
+                                        const EngineConfig &cfg,
+                                        NeuralAccumulator &child) noexcept
+{
+    if (!parent.valid)
+    {
+        child = NeuralAccumulator{};
+        return;
+    }
+    if (cfg.eval_backend == EvalBackend::NeuralQuantAccum)
+        copy_neural_quant_accumulator_impl(parent, child);
+    else if (cfg.eval_backend == EvalBackend::NeuralHalfkpQuantAccum)
+        copy_neural_halfkp_quant_accumulator_impl(parent, child);
+    else
+        copy_neural_simple_accumulator_impl(parent, child);
+}
+
+bool update_neural_accumulator_for_move(const NeuralAccumulator &parent,
+                                        const Board &board,
+                                        const chess::Move &move,
+                                        const EngineConfig &cfg,
+                                        NeuralAccumulator &child,
+                                        NeuralAccumulatorStats *stats)
+{
+    if (cfg.eval_backend == EvalBackend::NeuralQuantAccum)
+        return update_neural_quant_accumulator_for_move_impl(parent, board, move, child, stats);
+    if (cfg.eval_backend == EvalBackend::NeuralHalfkpQuantAccum)
+        return update_neural_halfkp_quant_accumulator_for_move_impl(parent, board, move, child, stats);
+    return update_neural_simple_accumulator_for_move_impl(parent, board, move, child, stats);
 }
 
 // ----- Debug accessors (White POV) -----

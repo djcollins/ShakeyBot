@@ -22,11 +22,11 @@ Score qsearch(chess::Board &board,
     }
     if (board.isHalfMoveDraw() || board.isRepetition(2))
     {
-        return draw_score_stm(board, config);
+        return draw_score_stm_at_ply(board, config, ply, stats);
     }
     if (board.isRepetition(1))
     {
-        const Score ds = draw_score_stm(board, config);
+        const Score ds = draw_score_stm_at_ply(board, config, ply, stats);
         // 2-fold repetition is not yet a draw; shape it to discourage the winning side
         // from steering into repetition, but do not weaken the losing side's defensive
         // tendency to repeat when appropriate.
@@ -84,10 +84,10 @@ Score qsearch(chess::Board &board,
             record_legal_movegen(stats, evasions);
             if (evasions.empty())
                 return -MATE_SCORE + ply;
-            return draw_score_stm(board, config);
+            return draw_score_stm_at_ply(board, config, ply, stats);
         }
         if (raw_static_eval == TT_NO_STATIC_EVAL)
-            raw_static_eval = eval_stm_no_game_over(board, config);
+            raw_static_eval = eval_stm_no_game_over_at_ply(board, config, ply, stats);
         const Score static_score = corrected_static_eval_from_raw(raw_static_eval, board, config);
         return static_score;
     }
@@ -113,9 +113,9 @@ Score qsearch(chess::Board &board,
             const chess::Move move = evasions[i];
             if (ply + 1 <= MAX_PLY)
                 set_search_stack_entry(ply + 1, board, move, i + 1);
-            board.makeMove(move);
+            search_make_move(board, move, ply, stats, config);
             const Score score = -qsearch(board, ply + 1, -beta, -alpha, stats, config, tt, control);
-            board.unmakeMove(move);
+            search_unmake_move(board, move, ply, config);
             if (stats.stopped)
                 return 0;
             if (score >= beta)
@@ -143,7 +143,7 @@ Score qsearch(chess::Board &board,
     }
     // Stand-pat (not in check)
     if (raw_static_eval == TT_NO_STATIC_EVAL)
-        raw_static_eval = eval_stm_no_game_over(board, config);
+        raw_static_eval = eval_stm_no_game_over_at_ply(board, config, ply, stats);
     Score stand_pat = corrected_static_eval_from_raw(raw_static_eval, board, config);
     if (stand_pat >= beta)
     {
@@ -345,9 +345,9 @@ Score qsearch(chess::Board &board,
         }
         if (ply + 1 <= MAX_PLY)
             set_search_stack_entry(ply + 1, board, move, i + 1);
-        board.makeMove(move);
+        search_make_move(board, move, ply, stats, config);
         const Score score = -qsearch(board, ply + 1, -beta, -alpha, stats, config, tt, control);
-        board.unmakeMove(move);
+        search_unmake_move(board, move, ply, config);
         if (stats.stopped)
             return 0;
         if (score >= beta)

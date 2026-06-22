@@ -721,6 +721,10 @@ namespace fast_engine
                 total_stats.probcut_cutoffs += iter_stats.probcut_cutoffs;
                 total_stats.legal_movegen_calls += iter_stats.legal_movegen_calls;
                 total_stats.legal_moves_generated += iter_stats.legal_moves_generated;
+                total_stats.neural_accumulator.refreshes += iter_stats.neural_accumulator.refreshes;
+                total_stats.neural_accumulator.invalid_fallbacks += iter_stats.neural_accumulator.invalid_fallbacks;
+                total_stats.neural_accumulator.delta_updates += iter_stats.neural_accumulator.delta_updates;
+                total_stats.neural_accumulator.check_failures += iter_stats.neural_accumulator.check_failures;
 
                 total_stats.is_mate = iter_stats.is_mate;
                 total_stats.is_draw = iter_stats.is_draw;
@@ -818,6 +822,10 @@ namespace fast_engine
                 total_stats.probcut_cutoffs += iter_stats.probcut_cutoffs;
                 total_stats.legal_movegen_calls += iter_stats.legal_movegen_calls;
                 total_stats.legal_moves_generated += iter_stats.legal_moves_generated;
+                total_stats.neural_accumulator.refreshes += iter_stats.neural_accumulator.refreshes;
+                total_stats.neural_accumulator.invalid_fallbacks += iter_stats.neural_accumulator.invalid_fallbacks;
+                total_stats.neural_accumulator.delta_updates += iter_stats.neural_accumulator.delta_updates;
+                total_stats.neural_accumulator.check_failures += iter_stats.neural_accumulator.check_failures;
                 total_stats.is_mate = iter_stats.is_mate;
                 total_stats.is_draw = iter_stats.is_draw;
                 total_stats.depth_reached = std::max(total_stats.depth_reached, iter_stats.depth_reached);
@@ -1001,6 +1009,7 @@ namespace fast_engine
         result.probcut_cutoffs = total_stats.probcut_cutoffs;
         result.legal_movegen_calls = total_stats.legal_movegen_calls;
         result.legal_moves_generated = total_stats.legal_moves_generated;
+        result.neural_accumulator = total_stats.neural_accumulator;
         result.aspiration_retries_total = total_aspiration_retries;
         result.aspiration_fail_lows_total = total_aspiration_fail_lows;
         result.aspiration_fail_highs_total = total_aspiration_fail_highs;

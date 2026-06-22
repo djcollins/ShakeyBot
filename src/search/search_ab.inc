@@ -119,8 +119,8 @@ Score negamax(chess::Board &board,
         if (mvs.empty())
             return board.inCheck() ? (-MATE_SCORE + ply) : 0;
         if (board.inCheck())
-            return draw_score_stm(board, config);
-        Score e = eval_stm_no_game_over(board, config);
+            return draw_score_stm_at_ply(board, config, ply, stats);
+        Score e = eval_stm_no_game_over_at_ply(board, config, ply, stats);
         if (correction_history_active(config))
             e += corr_hist_probe(board, config);
         return e;
@@ -152,13 +152,13 @@ Score negamax(chess::Board &board,
     {
         if (ply == 0)
             stats.is_draw = true;
-        return draw_score_stm(board, config);
+        return draw_score_stm_at_ply(board, config, ply, stats);
     }
     // 2-fold repetition warning (NOT a draw yet), but we treat it as drawish so the
     // winning side avoids stepping into repetition cycles.
     if (board.isRepetition(1))
     {
-        const Score ds = draw_score_stm(board, config);
+        const Score ds = draw_score_stm_at_ply(board, config, ply, stats);
         // 2-fold repetition is not yet a draw; shape it to discourage the winning side
         // from steering into repetition, but do not weaken the losing side's defensive
         // tendency to repeat when appropriate.
@@ -321,7 +321,7 @@ Score negamax(chess::Board &board,
     const bool in_check = board.inCheck();
     const Score raw_static_eval = (tt_static_eval != TT_NO_STATIC_EVAL)
                                       ? tt_static_eval
-                                      : eval_stm_no_game_over(board, config);
+                                      : eval_stm_no_game_over_at_ply(board, config, ply, stats);
     const Score node_corr_eval = corrected_static_eval_from_raw(raw_static_eval, board, config);
     if (0 <= ply && ply <= MAX_PLY)
         search_stack[ply].in_check = in_check;
@@ -421,8 +421,9 @@ Score negamax(chess::Board &board,
                 // accidentally treat a stale search-stack entry as the
                 // previous move inside the null-move search.
                 const SearchStackEntry saved_null_stack = search_stack[ply + 1];
+                const NeuralAccumulator saved_null_accum = neural_accumulator_stack[ply + 1];
                 clear_search_stack_entry(ply + 1);
-                board.makeNullMove();
+                search_make_null_move(board, ply, stats, config);
                 const Score null_score = [&]()
                 {
                     ScopedNullMoveFlag disable(false);
@@ -440,8 +441,9 @@ Score negamax(chess::Board &board,
                         tt,
                         control);
                 }();
-                board.unmakeNullMove();
+                search_unmake_null_move(board);
                 search_stack[ply + 1] = saved_null_stack;
+                neural_accumulator_stack[ply + 1] = saved_null_accum;
                 if (stats.stopped)
                     return 0;
                 if (null_score >= beta && null_score < MATE_BOUND)
@@ -524,7 +526,7 @@ Score negamax(chess::Board &board,
                 }
                 if (ply + 1 <= MAX_PLY)
                     set_search_stack_entry(ply + 1, board, m, i + 1);
-                board.makeMove(m);
+                search_make_move(board, m, ply, stats, config);
                 // Preliminary qsearch verification .
                 Score score = -qsearch(board, ply + 1, -probCutBeta, -probCutBeta + ONE_CP, stats, config, tt, control);
                 // If the qsearch held, perform the reduced-depth search.
@@ -545,7 +547,7 @@ Score negamax(chess::Board &board,
                                      tt,
                                      control);
                 }
-                board.unmakeMove(m);
+                search_unmake_move(board, m, ply, config);
                 if (stats.stopped)
                     return 0;
                 if (score >= probCutBeta)
@@ -644,7 +646,7 @@ Score negamax(chess::Board &board,
                 return -MATE_SCORE + ply; // losing mate, distance-aware
             if (ply == 0)
                 stats.is_draw = true;
-            return draw_score_stm(board, config);
+            return draw_score_stm_at_ply(board, config, ply, stats);
         }
         if (legal_count == 1)
             depth += 1;
@@ -1108,7 +1110,7 @@ Score negamax(chess::Board &board,
             set_search_stack_entry(ply + 1, board, move, moveCount);
         if (is_badcap_stage)
             ++stats.badcap_searched;
-        board.makeMove(move);
+        search_make_move(board, move, ply, stats, config);
         if (ply + 1 <= MAX_PLY)
             search_stack[ply + 1].in_check = board.inCheck();
         Score score;
@@ -1228,7 +1230,7 @@ Score negamax(chess::Board &board,
                     control);
             }
         }
-        board.unmakeMove(move);
+        search_unmake_move(board, move, ply, config);
         if (stats.stopped)
         {
             return 0;
@@ -1291,7 +1293,7 @@ Score negamax(chess::Board &board,
             return -MATE_SCORE + ply;
         if (ply == 0)
             stats.is_draw = true;
-        return draw_score_stm(board, config);
+        return draw_score_stm_at_ply(board, config, ply, stats);
     }
     // --- History updates ---
     // Apply learning once per node, based on the best move and the set of searched-but-not-best moves.

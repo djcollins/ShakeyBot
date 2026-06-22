@@ -78,6 +78,8 @@ namespace fast_engine
         std::uint64_t legal_movegen_calls = 0;
         std::uint64_t legal_moves_generated = 0;
 
+        NeuralAccumulatorStats neural_accumulator{};
+
         int aspiration_retries_total = 0;
         int aspiration_fail_lows_total = 0;
         int aspiration_fail_highs_total = 0;

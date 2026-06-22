@@ -1,0 +1,84 @@
+# ShakeyBot public repo ignore policy
+# Keep source, headers, build scripts, docs, and external source deps.
+# Ignore local binaries, benchmark notes, training workflows, datasets, shards, models, and scratch files.
+
+# Build outputs
+build/
+release/
+out/
+cmake-build-*/
+
+# Binaries and runtime artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Compiler/linker intermediates
+*.o
+*.obj
+*.d
+*.a
+*.lib
+*.pdb
+*.ilk
+*.exp
+
+# Logs/temp/cache
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*.cache
+__pycache__/
+*.py[cod]
+
+# Local benchmark/tournament/research notes
+/Benchmarks*.txt
+/benchmarks*.txt
+/SFB_*.txt
+/*tournament*.txt
+/*.txt
+/*.doc
+/*.docx
+/*.rtf
+/*.odt
+!CMakeLists.txt
+
+# Keep engine docs visible.
+!docs/
+!docs/**/*.md
+!README.md
+
+# Training and data-generation artifacts are not part of the public engine repo.
+training/
+Training_resources/
+
+# Datasets, shards, archives, and generated numeric artifacts
+*.csv
+*.tsv
+*.pgn
+*.epd
+*.fen
+*.npz
+*.npy
+*.bin
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.tgz
+*.z??
+*.zip.*
+*.7z.*
+
+# Neural models are shipped as GitHub Release assets, not normal source files.
+models/*
+!models/README.md
+
+# Local editor state
+.vscode/*
+!.vscode/settings.json

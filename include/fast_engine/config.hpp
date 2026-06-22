@@ -1,8 +1,24 @@
 #pragma once
+#include <cstdint>
+#include <string>
+
 #include "chess.hpp"
 
 namespace fast_engine
 {
+
+    enum class EvalBackend : std::uint8_t
+    {
+        Hce = 0,
+        NeuralDummy = 1,
+        NeuralSimple = 2,
+        NeuralAccum = 3,
+        NeuralQuant = 4,
+        NeuralQuantAccum = 5,
+        NeuralHalfkp = 6,
+        NeuralHalfkpQuant = 7,
+        NeuralHalfkpQuantAccum = 8
+    };
 
     struct EngineConfig
     {
@@ -110,6 +126,13 @@ namespace fast_engine
             double pst = 0.50;
             bool use_stock_pst = true;
         } eval;
+
+        EvalBackend eval_backend = EvalBackend::NeuralHalfkpQuantAccum;
+        std::string neural_model_path = "models/halfkp_wp_h512_e15_500m_clip30_quant.txt";
+        bool neural_endgame_fallback = false;
+        int neural_endgame_material_limit = 1;
+        bool neural_pawn_only_fallback = false;
+        bool neural_accumulator_check = false;
 
         // Tempo bonus (centipawns) applied in evaluate_for_side_to_move_with_config().
         int tempo_bonus_cp = 6;

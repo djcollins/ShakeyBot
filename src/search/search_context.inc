@@ -230,6 +230,8 @@ struct SearchStackEntry
 };
 using SearchStack = std::array<SearchStackEntry, MAX_PLY + 1>;
 static SearchStack search_stack{};
+using NeuralAccumulatorStack = std::array<NeuralAccumulator, MAX_PLY + 1>;
+static NeuralAccumulatorStack neural_accumulator_stack{};
 static chess::Move killer_moves[2][MAX_PLY + 1];
 static chess::Move counter_moves[2][64][64]; // [stm][prev_from][prev_to] -> quiet refutation move
                                              // [0]=primary, [1]=secondary (quiet beta-cutoff moves)
@@ -520,6 +522,153 @@ inline void clear_search_stack_entry(int ply) noexcept
         return;
     search_stack[ply] = SearchStackEntry{};
 }
+
+inline void clear_neural_accumulator_entry(int ply) noexcept
+{
+    if (ply < 0 || ply > MAX_PLY)
+        return;
+    neural_accumulator_stack[ply] = NeuralAccumulator{};
+}
+
+inline void reset_neural_accumulator_stack() noexcept
+{
+    for (NeuralAccumulator &accum : neural_accumulator_stack)
+        accum = NeuralAccumulator{};
+}
+
+inline NeuralAccumulator *neural_accumulator_for_ply(int ply) noexcept
+{
+    if (ply < 0 || ply > MAX_PLY)
+        return nullptr;
+    return &neural_accumulator_stack[ply];
+}
+
+inline void ensure_neural_accumulator_for_ply(const chess::Board &board,
+                                              const EngineConfig &config,
+                                              int ply,
+                                              SearchStats &stats)
+{
+    if (!neural_accumulator_backend_active(config))
+        return;
+    NeuralAccumulator *accum = neural_accumulator_for_ply(ply);
+    if (!accum)
+        return;
+    if (!neural_accumulator_matches(board, config, *accum))
+    {
+        ++stats.neural_accumulator.invalid_fallbacks;
+        refresh_neural_accumulator_for_config(board, config, *accum, &stats.neural_accumulator);
+    }
+}
+
+inline Score eval_stm_no_game_over_at_ply(const chess::Board &board,
+                                          const EngineConfig &config,
+                                          int ply,
+                                          SearchStats &stats)
+{
+    Score white_pov = 0;
+    if (neural_accumulator_backend_active(config))
+        white_pov = evaluate_white_pov_with_accumulator(board, config, neural_accumulator_for_ply(ply), &stats.neural_accumulator);
+    else
+        white_pov = evaluate_white_pov_with_config(board, config);
+    return (board.sideToMove() == chess::Color::WHITE) ? white_pov : -white_pov;
+}
+
+inline Score draw_score_stm_at_ply(const chess::Board &board,
+                                   const EngineConfig &config,
+                                   int ply,
+                                   SearchStats &stats)
+{
+    const Score stm_eval = eval_stm_no_game_over_at_ply(board, config, ply, stats);
+    if (std::abs(stm_eval) < cfg_pawns_to_cp(config.draw_contempt_threshold))
+        return 0;
+    const Score contempt_cap = cfg_pawns_to_cp(config.draw_contempt_max);
+    const Score contempt = std::min<Score>(
+        static_cast<Score>(std::llround(static_cast<double>(std::abs(stm_eval)) * config.draw_contempt_scale)),
+        contempt_cap);
+    Score score = 0;
+    if (stm_eval > 0)
+        score = -contempt;
+    else if (stm_eval < 0)
+        score = +contempt;
+    if (config.draw_noise > 0.0)
+    {
+        const std::uint64_t x = (board.hash() ^ 0x9E3779B97F4A7C15ULL);
+        const int noise = static_cast<int>(x & 0xFFu) - 128;
+        const Score noise_cp = cfg_pawns_to_cp(config.draw_noise);
+        score += static_cast<Score>((static_cast<std::int64_t>(noise_cp) * noise) / 128);
+    }
+    return score;
+}
+
+inline void search_make_move(chess::Board &board,
+                             const chess::Move &move,
+                             int ply,
+                             SearchStats &stats,
+                             const EngineConfig &config)
+{
+    bool child_ready = false;
+    if (neural_accumulator_backend_active(config) && 0 <= ply && ply < MAX_PLY)
+    {
+        ensure_neural_accumulator_for_ply(board, config, ply, stats);
+        child_ready = update_neural_accumulator_for_move(
+            neural_accumulator_stack[ply],
+            board,
+            move,
+            config,
+            neural_accumulator_stack[ply + 1],
+            &stats.neural_accumulator);
+        if (!child_ready)
+            ++stats.neural_accumulator.invalid_fallbacks;
+    }
+
+    board.makeMove(move);
+
+    if (neural_accumulator_backend_active(config) && 0 <= ply && ply < MAX_PLY)
+    {
+        if (child_ready && neural_accumulator_stack[ply + 1].valid)
+            neural_accumulator_stack[ply + 1].board_hash = board.hash();
+        else
+            refresh_neural_accumulator_for_config(board, config, neural_accumulator_stack[ply + 1], &stats.neural_accumulator);
+    }
+}
+
+inline void search_unmake_move(chess::Board &board,
+                               const chess::Move &move,
+                               int ply,
+                               const EngineConfig &config)
+{
+    (void)ply;
+    (void)config;
+    board.unmakeMove(move);
+}
+
+inline void search_make_null_move(chess::Board &board,
+                                  int ply,
+                                  SearchStats &stats,
+                                  const EngineConfig &config)
+{
+    if (neural_accumulator_backend_active(config) && 0 <= ply && ply < MAX_PLY)
+    {
+        ensure_neural_accumulator_for_ply(board, config, ply, stats);
+        copy_neural_accumulator_for_config(neural_accumulator_stack[ply], config, neural_accumulator_stack[ply + 1]);
+        neural_accumulator_stack[ply + 1].board_hash = 0ULL;
+        ++stats.neural_accumulator.delta_updates;
+    }
+
+    board.makeNullMove();
+
+    if (neural_accumulator_backend_active(config) && 0 <= ply && ply < MAX_PLY &&
+        neural_accumulator_stack[ply + 1].valid)
+    {
+        neural_accumulator_stack[ply + 1].board_hash = board.hash();
+    }
+}
+
+inline void search_unmake_null_move(chess::Board &board) noexcept
+{
+    board.unmakeNullMove();
+}
+
 inline void set_search_stack_entry(int ply,
                                    const chess::Board &board,
                                    const chess::Move &move,

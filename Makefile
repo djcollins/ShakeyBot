@@ -6,6 +6,9 @@ CXX ?= g++
 # Build mode: debug or release.
 MODE ?= debug
 
+# CPU target: auto, baseline, or avx2. Auto uses runtime dispatch.
+CPU ?= auto
+
 # Project layout.
 SRC_DIR     := src
 APP_DIR     := apps
@@ -41,6 +44,14 @@ ifeq ($(MODE),release)
   CXXFLAGS += -O3 -DNDEBUG
 else
   CXXFLAGS += -O0 -g
+endif
+
+ifeq ($(CPU),auto)
+  CPPFLAGS += -DSHAKEYBOT_ENABLE_AVX2_DISPATCH=1
+else ifeq ($(CPU),avx2)
+  CXXFLAGS += -mavx2
+else ifneq ($(CPU),baseline)
+  $(error Unsupported CPU target '$(CPU)'. Use CPU=auto, CPU=baseline, or CPU=avx2)
 endif
 
 # Linux needs pthread for std::thread linkage.
@@ -98,9 +109,11 @@ run: $(TARGET)
 
 help:
 	@echo "Targets:"
-	@echo "  make MODE=release           Build release binary"
-	@echo "  make MODE=debug             Build debug binary"
-	@echo "  make run                    Build and run binary"
-	@echo "  make clean                  Remove build artifacts"
+	@echo "  make MODE=release              Build release binary with safe CPU dispatch"
+	@echo "  make MODE=release CPU=baseline Build portable baseline release binary"
+	@echo "  make MODE=release CPU=avx2     Build AVX2-only release binary"
+	@echo "  make MODE=debug                Build debug binary"
+	@echo "  make run                       Build and run binary"
+	@echo "  make clean                     Remove build artifacts"
 
 -include $(DEPS)

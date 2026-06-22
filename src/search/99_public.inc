@@ -70,6 +70,9 @@ bool find_best_move(chess::Board &board,
     stats = SearchStats{};
     stats.depth_requested = depth;
     clear_search_stack_entry(0);
+    reset_neural_accumulator_stack();
+    if (neural_accumulator_backend_active(config))
+        refresh_neural_accumulator_for_config(board, config, neural_accumulator_stack[0], &stats.neural_accumulator);
 
     std::vector<RootMove> local_root_moves;
     std::vector<RootMove> *root_moves_ptr = root_moves ? root_moves : &local_root_moves;
@@ -159,7 +162,7 @@ bool find_best_move(chess::Board &board,
         if (is_badcap_stage)
             ++stats.badcap_searched;
         const std::uint64_t nodes_before = stats.nodes;
-        board.makeMove(move);
+        search_make_move(board, move, ply_root, stats, config);
         Score score;
         if (first)
         {
@@ -214,7 +217,7 @@ bool find_best_move(chess::Board &board,
                 control);
             }
         }
-        board.unmakeMove(move);
+        search_unmake_move(board, move, ply_root, config);
         root_move.was_searched = true;
         root_move.last_score = score;
         root_move.subtree_nodes = stats.nodes - nodes_before;
@@ -268,6 +271,7 @@ void reset_search_heuristics()
     for (int p = 0; p <= MAX_PLY; ++p)
     {
         clear_search_stack_entry(p);
+        clear_neural_accumulator_entry(p);
         killer_moves[0][p] = none;
         killer_moves[1][p] = none;
     }

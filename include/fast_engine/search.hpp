@@ -7,6 +7,7 @@
 
 #include "chess.hpp"
 #include "fast_engine/config.hpp"
+#include "fast_engine/evaluation.hpp"
 #include "fast_engine/types.hpp"
 
 namespace fast_engine
@@ -74,6 +75,8 @@ namespace fast_engine
         // Full legal-move generation diagnostics.
         std::uint64_t legal_movegen_calls = 0;
         std::uint64_t legal_moves_generated = 0;
+
+        NeuralAccumulatorStats neural_accumulator{};
     };
 
     // Runtime stop / time control shared across the search stack.

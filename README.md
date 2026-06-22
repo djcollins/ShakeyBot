@@ -2,7 +2,15 @@
 
 ShakeyBot is a UCI chess engine written in C++.
 
-It uses hand-crafted evaluation. In local testing against FabChess Version 1.8, a public engine with a listed strength around 2400 Elo, ShakeyBot scored slightly ahead. This is a local estimate, not an official rating-list result.
+ShakeyBot v2.0 uses a HalfKP NNUE-style neural evaluator by default, with a quantized accumulator backend for tournament play.
+
+The default release model is:
+
+```text
+models/halfkp_wp_h512_e15_500m_clip30_quant.txt
+```
+
+That model is distributed in the GitHub Release package, not tracked directly in the source repository.
 
 ## Project Layout
 
@@ -10,6 +18,7 @@ It uses hand-crafted evaluation. In local testing against FabChess Version 1.8, 
 - `src/` - engine/search/eval/transposition implementation
 - `include/fast_engine/` - public engine headers
 - `external/chess.hpp` - chess move generation/types dependency
+- `models/` - release-model notes; model files are shipped in release assets
 - `Makefile` - cross-platform build (Windows + Linux)
 
 ## Build
@@ -104,36 +113,14 @@ quit
 
 ## Estimated Strength
 
-Local match against FabChess Version 1.8 at 10 seconds per 50 moves:
+ShakeyBot v2.0.0 is provisionally estimated around 3000 Elo based on a local match against Ceibo v1.0, which is listed around 2985 Elo.
 
 ```text
-Score of ShakeyBot vs FabChess Version 1.8: 355 - 285 - 106 [0.547]
-...      ShakeyBot playing White: 171 - 142 - 60  [0.539] 373
-...      ShakeyBot playing Black: 184 - 143 - 46  [0.555] 373
-...      White vs Black: 314 - 326 - 106  [0.492] 746
-Elo difference: 32.7 +/- 23.2, LOS: 99.7 %, DrawRatio: 14.2 %
-746 of 20000 games finished.
+Scope    W-D-L        Score        Score %   Elo diff       95% CI
+Overall  651-266-202  784.0/1119   70.06%   +147.7         +128.9 to +166.5
 ```
 
-This suggests ShakeyBot is roughly competitive with 2400-class HCE engines under this local 10s/50 moves tournament setup.
-
-## Version released on 11 Feb 2026
-
-```text
-Score of ShakeyBot_New vs ShakeyBot_Previous: 1431 - 1114 - 1099 [0.543]
-
-...      ShakeyBot_New playing White: 754 - 520 - 548  [0.564] 1822
-
-...      ShakeyBot_New playing Black: 677 - 594 - 551  [0.523] 1822
-
-...      White vs Black: 1348 - 1197 - 1099  [0.521] 3644
-
-Elo difference: 30.3 +/- 9.4, LOS: 100.0 %, DrawRatio: 30.2 %
-
-SPRT: llr 0 (0.0%), lbound -inf, ubound inf
-
-3644 of 10000 games finished.
-```
+This is a provisional local estimate, not an official rating-list result. Broader testing against more engines and time controls is still needed.
 
 ## Notes
 

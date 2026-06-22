@@ -49,6 +49,10 @@ AGGREGATE_KEYS = [
     "probcutQsPasses",
     "probcutSearches",
     "probcutCutoffs",
+    "nnAccRefresh",
+    "nnAccInvalid",
+    "nnAccDelta",
+    "nnAccCheckFail",
 ]
 
 
@@ -65,12 +69,32 @@ def main() -> int:
     parser.add_argument("--depth", type=int, default=15, help="Fixed depth for each position.")
     parser.add_argument("--output", help="Optional output text file.")
     parser.add_argument("--label", default="ShakeyBot benchmark sanity run", help="Header label.")
+    parser.add_argument(
+        "--setoption",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="UCI option to set after 'uci' and before first 'isready'. Can be repeated.",
+    )
     args = parser.parse_args()
 
     engine = Path(args.engine)
     if not engine.exists():
         print(f"Engine not found: {engine}", file=sys.stderr)
         return 2
+
+    setoptions: list[tuple[str, str]] = []
+    for item in args.setoption:
+        if "=" not in item:
+            print(f"Invalid --setoption value, expected NAME=VALUE: {item}", file=sys.stderr)
+            return 2
+        name, value = item.split("=", 1)
+        name = name.strip()
+        value = value.strip()
+        if not name:
+            print(f"Invalid --setoption value, empty name: {item}", file=sys.stderr)
+            return 2
+        setoptions.append((name, value))
 
     out_file = open(args.output, "w", encoding="utf-8") if args.output else None
 
@@ -88,6 +112,8 @@ def main() -> int:
         emit(f"- {engine}")
         emit(f"- go depth {args.depth}")
         emit("- ucinewgame before every position")
+        for name, value in setoptions:
+            emit(f"- setoption name {name} value {value}")
         emit("")
         emit("Note:")
         emit("- Benchmark is sanity data only; tournament Elo decides.")
@@ -125,6 +151,8 @@ def main() -> int:
 
         send("uci")
         read_until(lambda line: line == "uciok")
+        for name, value in setoptions:
+            send(f"setoption name {name} value {value}", echo=True)
         send("isready")
         read_until(lambda line: line == "readyok")
 
@@ -181,7 +209,11 @@ def main() -> int:
             f"probcutSeeRejects={totals['probcutSeeRejects']} "
             f"probcutQsPasses={totals['probcutQsPasses']} "
             f"probcutSearches={totals['probcutSearches']} "
-            f"probcutCutoffs={totals['probcutCutoffs']}"
+            f"probcutCutoffs={totals['probcutCutoffs']} "
+            f"nnAccRefresh={totals['nnAccRefresh']} "
+            f"nnAccInvalid={totals['nnAccInvalid']} "
+            f"nnAccDelta={totals['nnAccDelta']} "
+            f"nnAccCheckFail={totals['nnAccCheckFail']}"
         )
     finally:
         if out_file:
