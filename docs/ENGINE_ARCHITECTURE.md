@@ -300,99 +300,120 @@ Top-level weights are exposed in `EngineConfig::EvalScales`.
 
 ### Neural Evaluation Backend
 
-The engine now has a backend switch at the public eval boundary:
+The engine has a backend switch at the public eval boundary:
 
 - `EvalBackend::Hce`
-  - default behavior
-  - uses the existing handcrafted evaluation
+  - handcrafted evaluation
 - `EvalBackend::NeuralDummy`
-  - deterministic test backend
-  - validates UCI/search plumbing without loading a model
+  - deterministic plumbing/test backend
 - `EvalBackend::NeuralSimple`
-  - stateless Simple768 neural evaluation
-  - evaluates board position directly, without NNUE make/unmake accumulators
+  - stateless Simple768 float model
+- `EvalBackend::NeuralAccum`
+  - Simple768 float model with accumulator support
+- `EvalBackend::NeuralQuant`
+  - stateless Simple768 quantized model
+- `EvalBackend::NeuralQuantAccum`
+  - Simple768 quantized accumulator model
+- `EvalBackend::NeuralHalfkp`
+  - stateless HalfKP float model
+- `EvalBackend::NeuralHalfkpQuant`
+  - stateless HalfKP quantized model
+- `EvalBackend::NeuralHalfkpQuantAccum`
+  - HalfKP quantized accumulator model
+  - current default backend in `EngineConfig`
+
+Default v2.0.0 config:
+
+- backend: `neural_halfkp_quant_accum`
+- model: `models/halfkp_wp_h512_e15_500m_clip30_quant.txt`
+- neural endgame fallback: disabled
+- neural pawn-only fallback: disabled
+- accumulator checker: disabled by default for speed
 
 UCI options:
 
 - `EvalBackend`
-  - combo: `hce`, `neural_dummy`, `neural_simple`
+  - combo: `hce`, `neural_dummy`, `neural_simple`, `neural_accum`, `neural_quant`, `neural_quant_accum`, `neural_halfkp`, `neural_halfkp_quant`, `neural_halfkp_quant_accum`
 - `NeuralModelPath`
-  - text path to the exported Simple768 model file
+  - text path to exported float or quantized model
 - `NeuralEndgameFallback`
   - enables HCE fallback for low-material neural positions
 - `NeuralEndgameMaterialLimit`
   - material-unit threshold for fallback
 - `NeuralPawnOnlyFallback`
   - controls whether pure pawn endings also fall back to HCE
+- `NeuralAccumulatorCheck`
+  - debug checker comparing accumulator path against stateless neural path
 
 Model loading:
 
-- implemented behind `include/fast_engine/evaluation.hpp`
-- loaded through `load_neural_simple_model(path, error)`
-- unloaded through `unload_neural_simple_model()`
-- accepted text format begins with `SHAKEYBOT_SIMPLE768_V1`
-- dimensions are `768 hidden_size`, with hidden sizes capped by engine-side inference limits
-- file contains `output_scale_cp`, then `w1`, `b1`, `w2`, `b2`
+- public declarations live in `include/fast_engine/evaluation.hpp`
+- Simple768 float: `load_neural_simple_model(path, error)`
+- Simple768 quantized: `load_neural_quant_model(path, error)`
+- HalfKP float: `load_neural_halfkp_model(path, error)`
+- HalfKP quantized: `load_neural_halfkp_quant_model(path, error)`
+- UCI loading is routed by `apps/fast_engine_uci.cpp` according to selected backend
+- model path fallback checks literal path, executable-relative path, and source-tree/release-style relative path
 
 Simple768 input convention:
 
 - feature count: `64 * 6 * 2 = 768`
 - at most 32 active piece features
-- index formula:
-  - `((color * 6 + piece_type) * 64 + square)`
-- color:
-  - White = `0`
-  - Black = `1`
-- piece type:
-  - pawn, knight, bishop, rook, queen, king = `0..5`
-- square:
-  - `A1 = 0`
-  - `H8 = 63`
+- index formula: `((color * 6 + piece_type) * 64 + square)`
+- square convention: `A1 = 0`, `H8 = 63`
 
-Inference shape:
+HalfKP input convention:
 
-- gather active `w1` rows
-- sum into hidden vector
-- add `b1`
-- apply ReLU
-- dot with `w2`
-- add `b2`
-- multiply by `output_scale_cp`
-- clamp to engine score bounds
+- feature count: `64 * 5 * 2 * 64 = 40960`
+- kings are anchors, not normal piece features
+- non-king piece type count is 5: pawn, knight, bishop, rook, queen
+- model uses white/black perspectives and side-to-move information
+- accumulator backends maintain and update transformed features across make/unmake instead of rebuilding every eval
+
+Inference files:
+
+- `src/eval/19_neural_dummy.inc`
+  - deterministic backend for testing
+- `src/eval/20_neural_simple.inc`
+  - Simple768 float/stateless inference and model format
+- `src/eval/21_neural_quant.inc`
+  - Simple768 quantized inference and accumulator path
+- `src/eval/22_neural_halfkp.inc`
+  - HalfKP float/quantized inference, HalfKP accumulator, and model loading
 
 Public eval flow:
 
-1. Build an eval-cache key from the board and eval-affecting config.
+1. Build an eval-cache key from board and eval-affecting config.
 2. Probe exact KPK first, before backend dispatch.
-3. If `EvalBackend::NeuralSimple` and low-material fallback triggers, use HCE.
-4. Otherwise dispatch to HCE, NeuralDummy, or NeuralSimple.
-5. Store the white-POV result in the eval cache.
+3. Apply optional low-material neural fallback if configured.
+4. Dispatch to selected HCE/neural backend.
+5. Store white-POV result in eval cache.
 6. Convert to side-to-move POV in `evaluate_for_side_to_move_with_config()`.
-7. Apply the normal tempo bonus at the side-to-move boundary.
+7. Apply normal tempo bonus at side-to-move boundary.
 
-Low-material neural fallback:
+Current tablebase status:
 
-- applies only to `EvalBackend::NeuralSimple`
-- counts material units as:
-  - pawns = 1
-  - knights/bishops = 3
-  - rooks = 5
-  - queens = 9
-- falls back to HCE when total material is at or below `NeuralEndgameMaterialLimit`
-- pure pawn endings remain neural by default unless `NeuralPawnOnlyFallback` is enabled
-- exact KPK is always handled before backend dispatch
+- exact KPK handling exists in the eval path
+- general Syzygy probing is not active in current mainline/release behavior
+- a post-v2.0.0 Syzygy/Fathom experiment was rolled back because root tablebase cutoffs could stop search too early and still allow poor practical conversion
+- future Syzygy work should use tablebases to filter/order and score eligible nodes, not blindly replace root search with the first safe tablebase move
 
 Cache and search integration:
 
-- the full eval cache signature includes backend/model/fallback state so HCE and neural values do not alias
+- eval-cache signature includes backend/model/fallback state so HCE and neural values do not alias
 - eval-affecting UCI option changes clear TT/eval state as needed
-- search static eval and pruning gates call `evaluate_white_pov_with_config()` through the normal search context, so neural backends also feed static eval, qsearch stand-pat, and pruning decisions
-- a `go` command with `EvalBackend=neural_simple` but no valid loaded model reports a UCI-visible error and avoids searching with uninitialized weights
+- search static eval and pruning gates call `evaluate_white_pov_with_config()` through normal search context
+- neural backends feed static eval, qsearch stand-pat, and pruning decisions
+- a `go` command requiring a neural model but lacking a valid loaded model reports a UCI-visible error and avoids searching with uninitialized weights
 
-Recent neural training lesson:
+Recent neural training lessons:
 
-- Current champion is `halfkp_wp_h512_e15_500m_clip30_quant.txt`, a HalfKP white-POV `40960 -> 512 -> 1` quantized accumulator model trained from natural Lichess game positions.
+- v2.0.0 release model is `halfkp_wp_h512_e15_500m_clip30_quant.txt`, a HalfKP white-POV `40960 -> 512 -> 1` quantized accumulator model trained from natural Lichess game positions.
+- Post-release local candidate `halfkp_wp_h512_e6_all_data_clip30_quant.txt` uses the same shape trained on about 3.7 billion natural positions and is currently the strongest local result.
+- Early local result: `HalfKP h512 3.7b e6` beat `HalfKP h512 500m e15` by `89 - 47 - 115`, score `0.584`, about `+58.7 +/- 31.7 Elo`.
+- Early local result: `HalfKP h512 3.7b e6` beat `Ceibo v1.0 2985` by `310 - 17 - 23`, score `0.919`, about `+420.9 +/- 60.5 Elo`.
 - Natural game-position data transferred much better to tournaments than hand-shaped/generated one-ply position clouds, even when synthetic validation MAE looked good.
+- More natural data improved tournament strength strongly; data distribution quality mattered more than adding hand-crafted endgame heuristics.
 - Keep future data experiments anchored to real game/search-position distributions; use targeted synthetic data only as a small diagnostic supplement.
 
 ## Diagnostics You Will See In Benchmarks
@@ -518,6 +539,8 @@ Impact labels use this scale: `very bad`, `bad`, `neutral`, `good`, `great`.
 | Release cleanup pass | Cleaned comments, spacing, stale tuning notes, and unclear local names across root/docs/include/apps/src/search/eval without changing benchmark behavior. | neutral | kept | - |
 | Neural eval plumbing | Added eval backend selection, Simple768 stateless model loading/inference, neural UCI options, eval-cache backend signatures, and low-material HCE fallback for neural play. | great | kept | - |
 | Natural HalfKP training data | Replaced hand-shaped/generated training distributions with natural Lichess game-position data for the HalfKP h512 model. The resulting model became the new tournament champion by a large margin. | great | kept | - |
+| Syzygy/Fathom experiment | Tried 3-5 piece Syzygy probing after v2.0.0. The first approach let root TB hits short-circuit search too aggressively and still produced poor practical conversion in pawn endings. | bad | rolled_back | Future tablebase design |
+| All-data HalfKP h512 candidate | Trained the same HalfKP h512 shape on about 3.7 billion natural positions, producing `halfkp_wp_h512_e6_all_data_clip30_quant.txt`. Early local tournaments beat the 500m HalfKP champion by about `+58.7 Elo` and Ceibo v1.0 2985 by about `+420.9 Elo`. | great | local_candidate | - |
 
 ## Update Log Interpretation
 
@@ -527,6 +550,7 @@ Impact labels use this scale: `very bad`, `bad`, `neutral`, `good`, `great`.
   - `rolled_back`: intentionally reverted.
   - `partially_rolled_back`: only part of the original change remains.
   - `superseded`: replaced by a later approach.
+  - `local_candidate`: validated locally but not part of the current release package.
 - `Superseded by` links an entry to the follow-up entry that replaced or reverted it.
 - Use one line per technically coherent patch group; if a patch group has mixed outcomes, split it into smaller lines.
 - Do not edit old lines to hide regressions; add a new follow-up line and update `Status`/`Superseded by`.
