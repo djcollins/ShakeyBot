@@ -82,3 +82,9 @@ models/*
 # Local editor state
 .vscode/*
 !.vscode/settings.json
+
+# Local Syzygy tablebases
+Zyzygy_EGTB_345/
+Syzygy_EGTB_345/
+*.rtbw
+*.rtbz
