@@ -8,6 +8,7 @@
 #include <mutex>
 #include "fast_engine/search.hpp"
 #include "fast_engine/evaluation.hpp"
+#include "fast_engine/tablebase.hpp"
 #include "fast_engine/transposition.hpp"
 
 namespace fast_engine

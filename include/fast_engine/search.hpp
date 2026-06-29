@@ -100,6 +100,10 @@ namespace fast_engine
         Score last_score = 0;
         Score previous_score = 0;
         std::uint64_t subtree_nodes = 0;
+        int tb_wdl = -1;
+        int tb_dtz = 0;
+        int tb_rank = 0;
+        bool tb_available = false;
         bool was_searched = false;
     };
 

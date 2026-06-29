@@ -33,6 +33,8 @@ else
 endif
 TARGET_NAME := ShakeyBot
 TARGET      := $(BIN_DIR)/$(TARGET_NAME)$(EXE_EXT)
+HALFKP_PREPROCESS_TARGET := $(BIN_DIR)/halfkp_preprocess$(EXE_EXT)
+HALFKP_PREPROCESS_SOURCE := tools/halfkp_preprocess_cpp/main.cpp
 
 # Compiler and linker flags.
 CPPFLAGS := $(addprefix -I,$(INC_DIRS))
@@ -65,7 +67,10 @@ CORE_SOURCES := \
   $(SRC_DIR)/config.cpp \
   $(SRC_DIR)/engine.cpp \
   $(SRC_DIR)/evaluation.cpp \
+  $(SRC_DIR)/fathom_tbprobe.cpp \
+  $(SRC_DIR)/path_utils.cpp \
   $(SRC_DIR)/search.cpp \
+  $(SRC_DIR)/tablebase.cpp \
   $(SRC_DIR)/transposition.cpp
 
 APP_SOURCES := \
@@ -75,12 +80,20 @@ SOURCES := $(CORE_SOURCES) $(APP_SOURCES)
 OBJECTS := $(patsubst %.cpp,$(OBJ_DIR)/%.o,$(SOURCES))
 DEPS    := $(OBJECTS:.o=.d)
 
-.PHONY: all clean run dirs help
+.PHONY: all clean run dirs help halfkp_preprocess
 
 all: $(TARGET)
 
+halfkp_preprocess: $(HALFKP_PREPROCESS_TARGET)
+
 $(TARGET): $(OBJECTS) | dirs
 	$(CXX) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $@
+ifeq ($(OS),Windows_NT)
+	@for %%f in (libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll) do @if exist "$(MINGW_BIN)%%f" copy /Y "$(MINGW_BIN)%%f" "$(BIN_DIR)\\" >NUL
+endif
+
+$(HALFKP_PREPROCESS_TARGET): $(HALFKP_PREPROCESS_SOURCE) | dirs
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< $(LDFLAGS) $(LDLIBS) -o $@
 ifeq ($(OS),Windows_NT)
 	@for %%f in (libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll) do @if exist "$(MINGW_BIN)%%f" copy /Y "$(MINGW_BIN)%%f" "$(BIN_DIR)\\" >NUL
 endif
@@ -112,6 +125,7 @@ help:
 	@echo "  make MODE=release              Build release binary with safe CPU dispatch"
 	@echo "  make MODE=release CPU=baseline Build portable baseline release binary"
 	@echo "  make MODE=release CPU=avx2     Build AVX2-only release binary"
+	@echo "  make halfkp_preprocess MODE=release Build C++ HalfKP preprocessing tool"
 	@echo "  make MODE=debug                Build debug binary"
 	@echo "  make run                       Build and run binary"
 	@echo "  make clean                     Remove build artifacts"

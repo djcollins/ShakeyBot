@@ -29,6 +29,59 @@ namespace
         }
     }
 
+    void apply_root_tablebase_policy(chess::Board &board,
+                                     const EngineConfig &config,
+                                     std::vector<RootMove> &root_moves)
+    {
+        if (root_moves.empty())
+            return;
+
+        const TablebaseRootResult tb = probe_syzygy_root(board, config);
+        if (!tb.available || tb.moves.empty())
+            return;
+
+        int best_wdl = -1;
+        for (const TablebaseRootMove &tm : tb.moves)
+            best_wdl = std::max(best_wdl, tm.wdl);
+        if (best_wdl < 0)
+            return;
+
+        for (RootMove &rm : root_moves)
+        {
+            rm.tb_available = false;
+            rm.tb_wdl = -1;
+            rm.tb_dtz = 0;
+            rm.tb_rank = 0;
+
+            for (const TablebaseRootMove &tm : tb.moves)
+            {
+                if (tm.move != rm.move)
+                    continue;
+                rm.tb_available = true;
+                rm.tb_wdl = tm.wdl;
+                rm.tb_dtz = tm.dtz;
+                rm.tb_rank = tm.rank;
+                break;
+            }
+        }
+
+        root_moves.erase(std::remove_if(root_moves.begin(),
+                                        root_moves.end(),
+                                        [best_wdl](const RootMove &rm)
+                                        {
+                                            return !rm.tb_available || rm.tb_wdl != best_wdl;
+                                        }),
+                         root_moves.end());
+
+        std::stable_sort(root_moves.begin(), root_moves.end(),
+                         [](const RootMove &a, const RootMove &b)
+                         {
+                             if (a.tb_rank != b.tb_rank)
+                                 return a.tb_rank > b.tb_rank;
+                             return false;
+                         });
+    }
+
     bool is_bad_root_capture(const chess::Board &board,
                              const chess::Move &move,
                              int depth,
@@ -77,7 +130,10 @@ bool find_best_move(chess::Board &board,
     std::vector<RootMove> local_root_moves;
     std::vector<RootMove> *root_moves_ptr = root_moves ? root_moves : &local_root_moves;
     if (root_moves_ptr->empty())
+    {
         initialize_root_moves(board, config, tt, depth, *root_moves_ptr);
+        apply_root_tablebase_policy(board, config, *root_moves_ptr);
+    }
 
     for (RootMove &rm : *root_moves_ptr)
     {

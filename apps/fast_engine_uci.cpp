@@ -10,11 +10,14 @@
 #include <mutex>
 #include <atomic>
 #include <vector>
+#include <filesystem>
 
 #include "chess.hpp"
 #include "fast_engine/engine.hpp"
 #include "fast_engine/config.hpp"
 #include "fast_engine/evaluation.hpp"
+#include "fast_engine/path_utils.hpp"
+#include "fast_engine/tablebase.hpp"
 
 using fast_engine::Engine;
 using fast_engine::EngineConfig;
@@ -175,6 +178,12 @@ struct UciIO
 static bool model_loaded_for_backend(EvalBackend backend) noexcept;
 static bool load_model_for_backend(EvalBackend backend, const std::string &path, std::string &error);
 
+static std::string resolved_model_path_for_load(const std::string &path)
+{
+    const std::filesystem::path resolved = fast_engine::resolve_model_path_upward(path);
+    return resolved.empty() ? path : resolved.string();
+}
+
 static bool ensure_neural_model_loaded_for_config(const EngineConfig &config, UciIO *io = nullptr)
 {
     if (!backend_uses_external_model(config.eval_backend))
@@ -192,16 +201,17 @@ static bool ensure_neural_model_loaded_for_config(const EngineConfig &config, Uc
 
     if (model_loaded_for_backend(config.eval_backend) &&
         loaded_path &&
-        *loaded_path == config.neural_model_path)
+        *loaded_path == resolved_model_path_for_load(config.neural_model_path))
         return true;
     if (config.neural_model_path.empty())
         return false;
 
     std::string error;
-    if (load_model_for_backend(config.eval_backend, config.neural_model_path, error))
+    const std::string resolved_path = resolved_model_path_for_load(config.neural_model_path);
+    if (load_model_for_backend(config.eval_backend, resolved_path, error))
     {
         if (io)
-            io->send("info string NeuralModelPath loaded " + config.neural_model_path);
+            io->send("info string NeuralModelPath loaded " + resolved_path);
         return true;
     }
 
@@ -396,8 +406,9 @@ static void handle_setoption(const std::string &line,
             if (backend_uses_external_model(config.eval_backend))
             {
                 std::string error;
-                if (load_model_for_backend(config.eval_backend, value, error))
-                    io.send("info string NeuralModelPath loaded " + value);
+                const std::string resolved_path = resolved_model_path_for_load(value);
+                if (load_model_for_backend(config.eval_backend, resolved_path, error))
+                    io.send("info string NeuralModelPath loaded " + resolved_path);
                 else
                     io.send("info string NeuralModelPath load failed: " + error);
             }
@@ -430,6 +441,24 @@ static void handle_setoption(const std::string &line,
     {
         if (!value.empty())
             config.neural_accumulator_check = parse_bool_option(value);
+    }
+    else if (name == "SyzygyPath")
+    {
+        config.syzygy_path = value;
+    }
+    else if (name == "SyzygyProbeLimit")
+    {
+        if (!value.empty())
+        {
+            int v = std::stoi(value);
+            v = std::max(0, std::min(7, v));
+            config.syzygy_probe_limit = v;
+        }
+    }
+    else if (name == "SyzygyRootProbe")
+    {
+        if (!value.empty())
+            config.syzygy_root_probe = parse_bool_option(value);
     }
     else if (name == "MaterialScale")
     {
@@ -1679,6 +1708,9 @@ int main()
             io.send("option name NeuralEndgameMaterialLimit type spin default " + std::to_string(config.neural_endgame_material_limit) + " min 0 max 40");
             io.send("option name NeuralPawnOnlyFallback type check default " + std::string(as_bool(config.neural_pawn_only_fallback)));
             io.send("option name NeuralAccumulatorCheck type check default " + std::string(as_bool(config.neural_accumulator_check)));
+            io.send("option name SyzygyPath type string default " + config.syzygy_path);
+            io.send("option name SyzygyProbeLimit type spin default " + std::to_string(config.syzygy_probe_limit) + " min 0 max 7");
+            io.send("option name SyzygyRootProbe type check default " + std::string(as_bool(config.syzygy_root_probe)));
 
             // Evaluation scales are exposed as x100 integer multipliers.
             io.send("option name MaterialScale type spin default " + std::to_string(to_cp(config.eval.material)) + " min 0 max 300");
@@ -1742,6 +1774,11 @@ int main()
         }
         else if (line == "isready")
         {
+            if (config.syzygy_root_probe && !config.syzygy_path.empty() &&
+                !fast_engine::initialize_syzygy(config))
+            {
+                io.send("info string SyzygyPath load failed " + config.syzygy_path);
+            }
             io.send("readyok");
         }
         else if (line.rfind("setoption", 0) == 0)

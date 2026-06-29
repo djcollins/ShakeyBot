@@ -353,7 +353,7 @@ Model loading:
 - HalfKP float: `load_neural_halfkp_model(path, error)`
 - HalfKP quantized: `load_neural_halfkp_quant_model(path, error)`
 - UCI loading is routed by `apps/fast_engine_uci.cpp` according to selected backend
-- model path fallback checks literal path, executable-relative path, and source-tree/release-style relative path
+- model path resolution tries the literal path first, then walks upward from the process working directory and executable directory to find `models/`, then loads the requested filename from that directory
 
 Simple768 input convention:
 
@@ -394,7 +394,9 @@ Public eval flow:
 Current tablebase status:
 
 - exact KPK handling exists in the eval path
-- general Syzygy probing is not active in current mainline/release behavior
+- root-only Syzygy probing is active through vendored Fathom when `SyzygyRootProbe=true`
+- default local path is the directory name `Zyzygy_EGTB_345`; runtime resolution walks upward from the process working directory and executable directory to find that folder
+- root probing filters legal root moves to the best tablebase WDL class and orders those moves by DTZ/progress, then normal search still chooses inside that filtered set
 - a post-v2.0.0 Syzygy/Fathom experiment was rolled back because root tablebase cutoffs could stop search too early and still allow poor practical conversion
 - future Syzygy work should use tablebases to filter/order and score eligible nodes, not blindly replace root search with the first safe tablebase move
 

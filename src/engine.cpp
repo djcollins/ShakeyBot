@@ -358,6 +358,11 @@ namespace fast_engine
         std::stable_sort(root_moves.begin(), root_moves.end(),
                          [&](const RootMove &a, const RootMove &b)
                          {
+                             if (a.tb_available != b.tb_available)
+                                 return a.tb_available;
+                             if (a.tb_available && b.tb_available && a.tb_rank != b.tb_rank)
+                                 return a.tb_rank > b.tb_rank;
+
                              const bool a_pv = (pv_move != chess::Move::NO_MOVE && a.move == pv_move);
                              const bool b_pv = (pv_move != chess::Move::NO_MOVE && b.move == pv_move);
                              if (a_pv != b_pv)

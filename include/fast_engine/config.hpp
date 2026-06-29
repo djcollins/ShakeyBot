@@ -134,6 +134,10 @@ namespace fast_engine
         bool neural_pawn_only_fallback = false;
         bool neural_accumulator_check = false;
 
+        bool syzygy_root_probe = true;
+        int syzygy_probe_limit = 5;
+        std::string syzygy_path = "Zyzygy_EGTB_345";
+
         // Tempo bonus (centipawns) applied in evaluate_for_side_to_move_with_config().
         int tempo_bonus_cp = 6;
 
