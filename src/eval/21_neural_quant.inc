@@ -518,6 +518,13 @@ static inline std::int64_t neural_quant_output_from_hidden(const NeuralQuantMode
 
     std::int64_t output_q = model.b2;
     const std::int16_t *const w2_data = model.w2.data();
+#if SHAKEYBOT_HAS_AVX512_KERNELS
+    if (neural_cpu_supports_avx512())
+    {
+        output_q += neural_dot_relu_i32_i16_avx512(hidden_data, w2_data, hidden_size);
+        return output_q;
+    }
+#endif
 #if SHAKEYBOT_HAS_AVX2_KERNELS
     if (neural_cpu_supports_avx2())
     {

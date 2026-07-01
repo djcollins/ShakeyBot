@@ -841,6 +841,22 @@ static inline void halfkp_quant_accumulate_layer2_from_hidden(
     const int first = 0;
     const int second = 1;
 
+#if SHAKEYBOT_HAS_AVX512_KERNELS
+    if (neural_cpu_supports_avx512() && model.activation_scale <= 32768)
+    {
+        for (int h = 0; h < hidden_size; ++h)
+        {
+            const std::int32_t a = std::clamp(hidden[first][h], 0, model.activation_scale);
+            const std::int32_t b = std::clamp(hidden[second][h], 0, model.activation_scale);
+            if (a == 0 && b == 0)
+                continue;
+            const std::int16_t *const row_a = model.w2.data() + static_cast<std::size_t>(h) * layer2_size;
+            const std::int16_t *const row_b = model.w2.data() + static_cast<std::size_t>(hidden_size + h) * layer2_size;
+            neural_accumulate_dual_i32_i16_to_i64_avx512(hidden2, row_a, a, row_b, b, layer2_size);
+        }
+        return;
+    }
+#endif
 #if SHAKEYBOT_HAS_AVX2_KERNELS
     if (neural_cpu_supports_avx2() && model.activation_scale <= 32768)
     {
@@ -877,12 +893,14 @@ static inline bool halfkp_quant_layer2_activation_fits_i32(std::int64_t hidden2_
     return hidden2_scale <= static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max());
 }
 
-#if SHAKEYBOT_HAS_AVX2_KERNELS
-static inline std::int64_t halfkp_quant_layer3_output_from_hidden2_avx2(
+#if SHAKEYBOT_HAS_AVX512_KERNELS || SHAKEYBOT_HAS_AVX2_KERNELS
+template <typename AccumulateEvenOdd>
+static inline std::int64_t halfkp_quant_layer3_output_from_hidden2_simd(
     const NeuralHalfkpQuantModel &model,
     const std::int64_t *hidden2,
     std::int64_t hidden2_scale,
-    std::int64_t hidden3_scale)
+    std::int64_t hidden3_scale,
+    AccumulateEvenOdd accumulate_even_odd)
 {
     alignas(NEURAL_CACHELINE_ALIGNMENT) std::array<std::int64_t, NEURAL_SIMPLE_MAX_HIDDEN> hidden3_even{};
     alignas(NEURAL_CACHELINE_ALIGNMENT) std::array<std::int64_t, NEURAL_SIMPLE_MAX_HIDDEN> hidden3_odd{};
@@ -900,7 +918,7 @@ static inline std::int64_t halfkp_quant_layer3_output_from_hidden2_avx2(
         if (acc == 0)
             continue;
         const std::int16_t *const row = model.w3.data() + static_cast<std::size_t>(j) * model.layer3_size;
-        neural_accumulate_i32_i16_to_i64_evenodd_avx2(
+        accumulate_even_odd(
             hidden3_even.data(),
             hidden3_odd.data(),
             row,
@@ -939,9 +957,23 @@ static inline std::int64_t halfkp_quant_output_from_hidden(
             static_cast<std::int64_t>(model.activation_scale) * static_cast<std::int64_t>(model.layer2_weight_scale);
         const std::int64_t hidden3_scale =
             hidden2_scale * static_cast<std::int64_t>(model.layer3_weight_scale);
+#if SHAKEYBOT_HAS_AVX512_KERNELS
+        if (neural_cpu_supports_avx512() && halfkp_quant_layer2_activation_fits_i32(hidden2_scale))
+            return halfkp_quant_layer3_output_from_hidden2_simd(
+                model,
+                hidden2.data(),
+                hidden2_scale,
+                hidden3_scale,
+                neural_accumulate_i32_i16_to_i64_evenodd_avx512);
+#endif
 #if SHAKEYBOT_HAS_AVX2_KERNELS
         if (neural_cpu_supports_avx2() && halfkp_quant_layer2_activation_fits_i32(hidden2_scale))
-            return halfkp_quant_layer3_output_from_hidden2_avx2(model, hidden2.data(), hidden2_scale, hidden3_scale);
+            return halfkp_quant_layer3_output_from_hidden2_simd(
+                model,
+                hidden2.data(),
+                hidden2_scale,
+                hidden3_scale,
+                neural_accumulate_i32_i16_to_i64_evenodd_avx2);
 #endif
 
         for (int k = 0; k < model.layer3_size; ++k)
@@ -984,6 +1016,20 @@ static inline std::int64_t halfkp_quant_output_from_hidden(
     }
 
     std::int64_t output_q = model.b2;
+#if SHAKEYBOT_HAS_AVX512_KERNELS
+    if (neural_cpu_supports_avx512())
+    {
+        output_q += neural_dot_clamped_i32_i16_avx512(hidden[first].data(),
+                                                     model.w2.data(),
+                                                     hidden_size,
+                                                     model.activation_scale);
+        output_q += neural_dot_clamped_i32_i16_avx512(hidden[second].data(),
+                                                     model.w2.data() + hidden_size,
+                                                     hidden_size,
+                                                     model.activation_scale);
+        return output_q;
+    }
+#endif
 #if SHAKEYBOT_HAS_AVX2_KERNELS
     if (neural_cpu_supports_avx2())
     {

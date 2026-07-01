@@ -62,8 +62,8 @@ namespace fast_engine
         double lmr_history_penalty_mult = 1.25;
 
         // LMR base/slope tuning knobs. UCI exposes these as ints 0..300, interpreted as value / 100.0.
-        double lmr_base_mult = 2.25;
-        double lmr_slope_mult = 0.5;
+        double lmr_base_mult = 1.5;
+        double lmr_slope_mult = 0.4;
 
         bool use_null_move_pruning = true;
 
@@ -128,7 +128,7 @@ namespace fast_engine
         } eval;
 
         EvalBackend eval_backend = EvalBackend::NeuralHalfkpQuantAccum;
-        std::string neural_model_path = "models/halfkp_wp_h512_e15_500m_clip30_quant.txt";
+        std::string neural_model_path = "models/halfkp_wp_h512_e6_13b_clip30_quant.txt";
         bool neural_endgame_fallback = false;
         int neural_endgame_material_limit = 1;
         bool neural_pawn_only_fallback = false;

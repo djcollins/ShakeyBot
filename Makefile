@@ -6,7 +6,7 @@ CXX ?= g++
 # Build mode: debug or release.
 MODE ?= debug
 
-# CPU target: auto, baseline, or avx2. Auto uses runtime dispatch.
+# CPU target: auto, baseline, avx2, or avx512. Auto uses runtime dispatch.
 CPU ?= auto
 
 # Project layout.
@@ -49,11 +49,13 @@ else
 endif
 
 ifeq ($(CPU),auto)
-  CPPFLAGS += -DSHAKEYBOT_ENABLE_AVX2_DISPATCH=1
+  CPPFLAGS += -DSHAKEYBOT_ENABLE_AVX2_DISPATCH=1 -DSHAKEYBOT_ENABLE_AVX512_DISPATCH=1
 else ifeq ($(CPU),avx2)
   CXXFLAGS += -mavx2
+else ifeq ($(CPU),avx512)
+  CXXFLAGS += -mavx512f -mavx512bw -mavx512dq
 else ifneq ($(CPU),baseline)
-  $(error Unsupported CPU target '$(CPU)'. Use CPU=auto, CPU=baseline, or CPU=avx2)
+  $(error Unsupported CPU target '$(CPU)'. Use CPU=auto, CPU=baseline, CPU=avx2, or CPU=avx512)
 endif
 
 # Linux needs pthread for std::thread linkage.
@@ -125,6 +127,7 @@ help:
 	@echo "  make MODE=release              Build release binary with safe CPU dispatch"
 	@echo "  make MODE=release CPU=baseline Build portable baseline release binary"
 	@echo "  make MODE=release CPU=avx2     Build AVX2-only release binary"
+	@echo "  make MODE=release CPU=avx512   Build AVX512-only release binary"
 	@echo "  make halfkp_preprocess MODE=release Build C++ HalfKP preprocessing tool"
 	@echo "  make MODE=debug                Build debug binary"
 	@echo "  make run                       Build and run binary"
